@@ -23,7 +23,6 @@ void UserController::handleCreateUser(const Rest::Request& request, Http::Respon
         auto body = request.body();
         auto data = json::parse(body);
 
-        // Create user with basic info
         User user{0, 
             data["name"].get<std::string>(),
             data["email"].get<std::string>(),
@@ -42,7 +41,6 @@ void UserController::handleCreateUser(const Rest::Request& request, Http::Respon
             data["profilePicture"].get<std::string>()
         };
 
-        // Add projects if present
         if (data.contains("projects") && data["projects"].is_array()) {
             for (const auto& projectData : data["projects"]) {
                 Project project{
@@ -107,10 +105,9 @@ void UserController::handleGetUsers(const Rest::Request&, Http::ResponseWriter r
 }
 
 void UserController::handleGetUsersPaginated(const Rest::Request& request, Http::ResponseWriter response) {
-    int take = 10;  // default value
-    int skip = 0;   // default value
+    int take = 10;
+    int skip = 0;
 
-    // Handle take parameter
     if (auto takeOpt = request.query().get("take")) {
         try {
             take = std::stoi(*takeOpt);
@@ -124,7 +121,6 @@ void UserController::handleGetUsersPaginated(const Rest::Request& request, Http:
         }
     }
 
-    // Handle skip parameter
     if (auto skipOpt = request.query().get("skip")) {
         try {
             skip = std::stoi(*skipOpt);
@@ -139,7 +135,6 @@ void UserController::handleGetUsersPaginated(const Rest::Request& request, Http:
     }
 
     try {
-        // Fetch paginated users and total count
         auto users = repository.getUsersPaginated(skip, take);
         int totalCount = repository.getTotalCount();
 
@@ -172,7 +167,6 @@ void UserController::handleUpdateUser(const Rest::Request& request, Http::Respon
         auto body = request.body();
         auto data = json::parse(body);
 
-        // Create user with updated info
         User user{id, 
             data["name"].get<std::string>(),
             data["email"].get<std::string>(),
@@ -191,7 +185,6 @@ void UserController::handleUpdateUser(const Rest::Request& request, Http::Respon
             data["profilePicture"].get<std::string>()
         };
 
-        // Add projects if present
         if (data.contains("projects") && data["projects"].is_array()) {
             for (const auto& projectData : data["projects"]) {
                 Project project{

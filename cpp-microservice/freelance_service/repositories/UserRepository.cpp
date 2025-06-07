@@ -10,7 +10,6 @@ UserRepository::UserRepository() : db(Database::getInstance(DatabaseUtils::DB_NA
 }
 
 void UserRepository::createTables() {
-    // Create users table with new fields
     const char* sql = "CREATE TABLE IF NOT EXISTS users ("
                       "id INTEGER PRIMARY KEY AUTOINCREMENT, "
                       "name TEXT NOT NULL, "
@@ -29,7 +28,6 @@ void UserRepository::createTables() {
                       "portfolioUrl TEXT, "
                       "profilePicture TEXT);";
 
-    // Create projects table
     const char* projects_sql = "CREATE TABLE IF NOT EXISTS projects ("
                               "id INTEGER PRIMARY KEY AUTOINCREMENT, "
                               "user_id INTEGER, "
@@ -80,7 +78,6 @@ void UserRepository::createUser(const User& user) {
         int userId = sqlite3_last_insert_rowid(db);
         DatabaseUtils::finalizeStatement(stmt);
 
-        // Insert projects if any
         if (!user.projects.empty()) {
             const char* project_sql = "INSERT INTO projects (user_id, name, description, "
                                     "techStack, role, startDate, endDate, projectUrl, isCurrent) "
@@ -136,7 +133,6 @@ std::vector<User> UserRepository::getAllUsers() {
             user.portfolioUrl = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 14));
             user.profilePicture = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 15));
 
-            // Get projects for this user
             const char* projects_sql = "SELECT * FROM projects WHERE user_id = ?;";
             sqlite3_stmt* projects_stmt = DatabaseUtils::prepareStatement(
                 db, projects_sql);
@@ -194,7 +190,6 @@ std::vector<User> UserRepository::getUsersPaginated(int skip, int take) {
             user.portfolioUrl = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 14));
             user.profilePicture = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 15));
 
-            // Get projects for this user
             const char* projects_sql = "SELECT * FROM projects WHERE user_id = ?;";
             sqlite3_stmt* projects_stmt = DatabaseUtils::prepareStatement(db, projects_sql);
             DatabaseUtils::bindInt(projects_stmt, 1, user.id);
@@ -273,7 +268,6 @@ void UserRepository::updateUser(const User& user) {
         sqlite3_step(stmt);
         DatabaseUtils::finalizeStatement(stmt);
 
-        // Delete existing projects
         const char* delete_sql = "DELETE FROM projects WHERE user_id = ?;";
         sqlite3_stmt* delete_stmt = DatabaseUtils::prepareStatement(
             db, delete_sql);
@@ -281,7 +275,6 @@ void UserRepository::updateUser(const User& user) {
         sqlite3_step(delete_stmt);
         DatabaseUtils::finalizeStatement(delete_stmt);
 
-        // Insert updated projects
         if (!user.projects.empty()) {
             const char* project_sql = "INSERT INTO projects (user_id, name, description, "
                                     "techStack, role, startDate, endDate, projectUrl, isCurrent) "
@@ -351,7 +344,6 @@ std::vector<User> UserRepository::searchUsers(const std::string& query) {
             user.portfolioUrl = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 14));
             user.profilePicture = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 15));
 
-            // Get projects for this user
             const char* projects_sql = "SELECT * FROM projects WHERE user_id = ?;";
             sqlite3_stmt* projects_stmt = DatabaseUtils::prepareStatement(
                 db, projects_sql);
@@ -381,7 +373,6 @@ std::vector<User> UserRepository::searchUsers(const std::string& query) {
 }
 
 void UserRepository::addProjectToUser(const std::string& email, const Project& project) {
-    // First get the user ID from email
     const char* sql = "SELECT id FROM users WHERE email = ?;";
     sqlite3_stmt* stmt = DatabaseUtils::prepareStatement(db, sql);
     DatabaseUtils::bindText(stmt, 1, email);
@@ -396,7 +387,6 @@ void UserRepository::addProjectToUser(const std::string& email, const Project& p
         throw std::runtime_error("User not found with email: " + email);
     }
 
-    // Insert the project
     const char* insert_sql = "INSERT INTO projects (user_id, name, description, techStack, role, startDate, endDate, projectUrl, isCurrent) "
                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);";
     sqlite3_stmt* insert_stmt = DatabaseUtils::prepareStatement(db, insert_sql);
@@ -416,7 +406,6 @@ void UserRepository::addProjectToUser(const std::string& email, const Project& p
 }
 
 void UserRepository::updateProject(const std::string& email, const Project& project) {
-    // First get the user ID from email
     const char* sql = "SELECT id FROM users WHERE email = ?;";
     sqlite3_stmt* stmt = DatabaseUtils::prepareStatement(db, sql);
     DatabaseUtils::bindText(stmt, 1, email);
@@ -431,7 +420,6 @@ void UserRepository::updateProject(const std::string& email, const Project& proj
         throw std::runtime_error("User not found with email: " + email);
     }
 
-    // Verify the project belongs to the user
     const char* verify_sql = "SELECT id FROM projects WHERE id = ? AND user_id = ?;";
     sqlite3_stmt* verify_stmt = DatabaseUtils::prepareStatement(db, verify_sql);
     DatabaseUtils::bindInt(verify_stmt, 1, project.id);
@@ -444,7 +432,6 @@ void UserRepository::updateProject(const std::string& email, const Project& proj
         throw std::runtime_error("Project not found or does not belong to user");
     }
 
-    // Update the project
     const char* update_sql = "UPDATE projects SET "
                            "name = ?, description = ?, techStack = ?, role = ?, "
                            "startDate = ?, endDate = ?, projectUrl = ?, isCurrent = ? "

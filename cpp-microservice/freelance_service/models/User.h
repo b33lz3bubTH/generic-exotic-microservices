@@ -10,12 +10,12 @@ public:
     std::string name;
     std::string email;
     std::string bio;
-    std::string title;  // Professional title/headline
+    std::string title; 
     std::string location;
     std::string skills;
     std::string hourlyRate;
-    std::string availability;  // Full-time, Part-time, etc.
-    std::string experience;    // Years of experience
+    std::string availability;  
+    std::string experience;    
     std::string education;
     std::string certifications;
     std::string githubUrl;
