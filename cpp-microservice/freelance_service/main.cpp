@@ -1,16 +1,22 @@
-#include <pistache/endpoint.h>
-#include <pistache/router.h>
+#include <iostream>
+#include <httplib.h>
 #include "controllers/UserController.h"
+#include "db/Database.h"
+#include "db/DatabaseUtils.h"
 
 int main() {
-    Pistache::Http::Endpoint server(Pistache::Address("*:9080"));
-    auto opts = Pistache::Http::Endpoint::options().threads(1);
-    server.init(opts);
-
-    Pistache::Rest::Router router;
-    UserController userController(router);
-
-    server.setHandler(router.handler());
-    server.serve();
+    try {
+        Database::getInstance(DatabaseUtils::DB_NAME);
+        httplib::Server svr;
+        
+        UserController userController(svr);
+        userController.setupRoutes();
+        
+        std::cout << "Server starting on port 8080..." << std::endl;
+        svr.listen("0.0.0.0", 8080);
+    } catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << std::endl;
+        return 1;
+    }
     return 0;
 } 

@@ -1,9 +1,3 @@
-# User API Documentation
-
-This document provides curl commands to test all user-related endpoints in the Freelance Service API.
-
-## Base URL
-All endpoints are relative to: `http://localhost:9080`
 
 ## Create User
 Creates a new user with profile details and projects.

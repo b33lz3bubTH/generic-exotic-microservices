@@ -1,20 +1,25 @@
 #include "Database.h"
 #include <stdexcept>
 
-sqlite3* Database::db = nullptr;
+std::unique_ptr<Database> Database::instance = nullptr;
+std::mutex Database::mutex;
 
-sqlite3* Database::getInstance(const std::string& db_name) {
-    if (!db) {
-        if (sqlite3_open(db_name.c_str(), &db)) {
-            throw std::runtime_error("Can't open DB: " + std::string(sqlite3_errmsg(db)));
-        }
+Database& Database::getInstance(const std::string& dbName) {
+    std::lock_guard<std::mutex> lock(mutex);
+    if (!instance) {
+        instance = std::unique_ptr<Database>(new Database(dbName));
     }
-    return db;
+    return *instance;
 }
 
-void Database::close() {
+Database::Database(const std::string& dbName) {
+    if (sqlite3_open(dbName.c_str(), &db) != SQLITE_OK) {
+        throw std::runtime_error("Failed to open database: " + std::string(sqlite3_errmsg(db)));
+    }
+}
+
+Database::~Database() {
     if (db) {
         sqlite3_close(db);
-        db = nullptr;
     }
 } 
