@@ -11,6 +11,11 @@
 echo "Starting Freelance Service..."
 set -e
 
+# Optionally support PORT env for Docker/K8s
+if [ -n "$PORT" ]; then
+  export PORT
+fi
+
 # First build
 echo ">> Initial build..."
 cmake -S . -B build

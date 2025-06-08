@@ -17,13 +17,13 @@ add_executable(FreelanceService
     main.cpp
     db/Database.cpp
     db/DatabaseUtils.cpp
-    models/User.cpp
-    models/Project.cpp
-    repositories/UserRepository.cpp
-    controllers/UserController.cpp
+    models/LogEntry.cpp
+    models/ServiceLogger.h
+    repositories/LogRepository.cpp
+    controllers/LogController.cpp
 )
 
 target_link_libraries(FreelanceService
     ${SQLite3_LIBRARIES}
     pistache
-) 
+)
