@@ -18,12 +18,16 @@ add_executable(FreelanceService
     db/Database.cpp
     db/DatabaseUtils.cpp
     models/LogEntry.cpp
-    models/ServiceLogger.h
+    models/VaultEntry.cpp
     repositories/LogRepository.cpp
+    repositories/VaultRepository.cpp
     controllers/LogController.cpp
+    controllers/VaultController.cpp
 )
 
 target_link_libraries(FreelanceService
     ${SQLite3_LIBRARIES}
     pistache
+    ssl
+    crypto
 )

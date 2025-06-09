@@ -1,6 +1,7 @@
 #include <pistache/endpoint.h>
 #include <pistache/router.h>
 #include "controllers/LogController.h"
+#include "controllers/VaultController.h"
 #include "models/ServiceLogger.h"
 #include <csignal>
 #include <cstdlib>
@@ -43,6 +44,7 @@ int main() {
     Pistache::Rest::Router router;
     LogController logController(router);
     HealthController healthController(router);
+    VaultController vaultController(router);
 
     // Set router as handler
     server.setHandler(router.handler());
