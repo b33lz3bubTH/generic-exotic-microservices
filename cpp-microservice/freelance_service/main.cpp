@@ -2,6 +2,7 @@
 #include <pistache/router.h>
 #include "controllers/LogController.h"
 #include "controllers/VaultController.h"
+#include "controllers/ContactUsController.h"
 #include "models/ServiceLogger.h"
 #include <csignal>
 #include <cstdlib>
@@ -45,6 +46,7 @@ int main() {
     LogController logController(router);
     HealthController healthController(router);
     VaultController vaultController(router);
+    ContactUsController contactUsController(router);
 
     // Set router as handler
     server.setHandler(router.handler());

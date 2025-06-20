@@ -19,10 +19,13 @@ add_executable(FreelanceService
     db/DatabaseUtils.cpp
     models/LogEntry.cpp
     models/VaultEntry.cpp
+    models/ContactUsEntry.cpp
     repositories/LogRepository.cpp
     repositories/VaultRepository.cpp
+    repositories/ContactUsRepository.cpp
     controllers/LogController.cpp
     controllers/VaultController.cpp
+    controllers/ContactUsController.cpp
 )
 
 target_link_libraries(FreelanceService
