@@ -5,6 +5,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/yourorg/contactus-microservice/internal/db"
 	"github.com/yourorg/contactus-microservice/core/contactus"
+	"github.com/yourorg/contactus-microservice/core/products"
 	"github.com/gin-contrib/cors"
 	"github.com/unrolled/secure"
 )
@@ -21,6 +22,10 @@ func main() {
 	repo := contactus.NewContactUsRepository(db.DB)
 	svc := contactus.NewContactUsService(repo)
 	ctrl := contactus.NewContactUsController(svc)
+
+	productRepo := products.NewProductRepository(db.DB)
+	productSvc := products.NewProductService(productRepo)
+	productCtrl := products.NewProductController(productSvc)
 
 	// Setup Gin
 	r := gin.Default()
@@ -48,7 +53,11 @@ func main() {
 	// Rate limiting middleware for contactus
 	r.Use(contactus.RateLimitMiddleware(ctrl.Name()))
 
+	// Rate limiting middleware for products
+	r.Use(contactus.RateLimitMiddleware(productCtrl.Name()))
+
 	ctrl.RegisterRoutes(r)
+	productCtrl.RegisterRoutes(r)
 
 	// Start server
 	logrus.Info("Server running on :8080")
