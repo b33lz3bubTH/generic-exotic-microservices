@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+
 	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator/v10"
 )
@@ -33,12 +34,12 @@ type ProductRequest struct {
 }
 
 type ProductVariantReq struct {
-	ID         string                 `json:"id"`
-	SKU        string                 `json:"sku"`
-	Attributes []map[string]string    `json:"attributes"`
-	Image      string                 `json:"image_url"`
-	Price      int                    `json:"price"`
-	InStock    bool                   `json:"in_stock"`
+	ID         string              `json:"id"`
+	SKU        string              `json:"sku"`
+	Attributes []map[string]string `json:"attributes"`
+	Image      string              `json:"image_url"`
+	Price      int                 `json:"price"`
+	InStock    bool                `json:"in_stock"`
 }
 
 func (c *ProductController) RegisterRoutes(r *gin.Engine) {
@@ -74,12 +75,12 @@ func (c *ProductController) CreateProduct(ctx *gin.Context) {
 	for _, v := range req.Variants {
 		attrJSON, _ := json.Marshal(v.Attributes)
 		product.Variants = append(product.Variants, ProductVariant{
-			ID:        v.ID,
-			SKU:       v.SKU,
+			ID:         v.ID,
+			SKU:        v.SKU,
 			Attributes: attrJSON,
-			ImageURL:  v.Image,
-			Price:     v.Price,
-			InStock:   v.InStock,
+			ImageURL:   v.Image,
+			Price:      v.Price,
+			InStock:    v.InStock,
 		})
 	}
 	id, err := c.service.CreateProduct(context.Background(), product)
@@ -109,19 +110,20 @@ func (c *ProductController) UpdateProduct(ctx *gin.Context) {
 		Price:       req.Price,
 		Featured:    req.Featured,
 	}
+
 	for _, img := range req.Images {
 		product.Images = append(product.Images, ProductImage{ImageURL: img, ProductID: id})
 	}
 	for _, v := range req.Variants {
 		attrJSON, _ := json.Marshal(v.Attributes)
 		product.Variants = append(product.Variants, ProductVariant{
-			ID:        v.ID,
-			SKU:       v.SKU,
+			ID:         v.ID,
+			SKU:        v.SKU,
 			Attributes: attrJSON,
-			ImageURL:  v.Image,
-			Price:     v.Price,
-			InStock:   v.InStock,
-			ProductID: id,
+			ImageURL:   v.Image,
+			Price:      v.Price,
+			InStock:    v.InStock,
+			ProductID:  id,
 		})
 	}
 	if err := c.service.UpdateProduct(context.Background(), product); err != nil {
@@ -154,7 +156,7 @@ func (c *ProductController) GetProduct(ctx *gin.Context) {
 func (c *ProductController) ListProducts(ctx *gin.Context) {
 	skip, _ := strconv.Atoi(ctx.DefaultQuery("skip", "0"))
 	take, _ := strconv.Atoi(ctx.DefaultQuery("take", "10"))
-	products, total, err := c.service.PaginatedListProducts(context.Background(), skip, take)
+	products, _, err := c.service.PaginatedListProducts(context.Background(), skip, take)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -163,9 +165,9 @@ func (c *ProductController) ListProducts(ctx *gin.Context) {
 	for i, p := range products {
 		responses[i] = TransformProductToResponse(&p)
 	}
-	ctx.JSON(http.StatusOK, gin.H{"total": total, "data": responses})
+	ctx.JSON(http.StatusOK, responses)
 }
 
 func (c *ProductController) Name() string {
 	return "products"
-} 
+}

@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"sync"
+
 	"github.com/spf13/viper"
 )
 
@@ -12,7 +13,7 @@ type RateLimitSetting struct {
 }
 
 type RateLimitConfig struct {
-	Default   RateLimitSetting            `mapstructure:"default"`
+	Default     RateLimitSetting            `mapstructure:"default"`
 	Controllers map[string]RateLimitSetting `mapstructure:"controllers"`
 }
 
@@ -22,7 +23,7 @@ type Config struct {
 }
 
 var (
-	cfg *Config
+	cfg  *Config
 	once sync.Once
 )
 
@@ -33,8 +34,8 @@ func loadConfig() *Config {
 	v.AddConfigPath(".")
 	_ = v.BindEnv("DB_FILE")
 	v.SetDefault("dbfile", os.Getenv("DB_FILE"))
-	v.SetDefault("ratelimit.default.post", 30)
-	v.SetDefault("ratelimit.default.get", 10)
+	v.SetDefault("ratelimit.default.post", 300)
+	v.SetDefault("ratelimit.default.get", 100)
 	if err := v.ReadInConfig(); err != nil {
 		// fallback to env/defaults
 	}
@@ -53,4 +54,4 @@ func Get() *Config {
 		cfg = loadConfig()
 	})
 	return cfg
-} 
+}
