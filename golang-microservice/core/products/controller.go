@@ -2,6 +2,7 @@ package products
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"github.com/gin-gonic/gin"
@@ -32,13 +33,12 @@ type ProductRequest struct {
 }
 
 type ProductVariantReq struct {
-	ID      string            `json:"id"`
-	SKU     string            `json:"sku"`
-	Color   string            `json:"color"`
-	Size    string            `json:"size"`
-	Image   string            `json:"image_url"`
-	Price   int               `json:"price"`
-	InStock bool              `json:"in_stock"`
+	ID         string                 `json:"id"`
+	SKU        string                 `json:"sku"`
+	Attributes []map[string]string    `json:"attributes"`
+	Image      string                 `json:"image_url"`
+	Price      int                    `json:"price"`
+	InStock    bool                   `json:"in_stock"`
 }
 
 func (c *ProductController) RegisterRoutes(r *gin.Engine) {
@@ -72,14 +72,14 @@ func (c *ProductController) CreateProduct(ctx *gin.Context) {
 		product.Images = append(product.Images, ProductImage{ImageURL: img})
 	}
 	for _, v := range req.Variants {
+		attrJSON, _ := json.Marshal(v.Attributes)
 		product.Variants = append(product.Variants, ProductVariant{
-			ID:      v.ID,
-			SKU:     v.SKU,
-			Color:   v.Color,
-			Size:    v.Size,
-			ImageURL: v.Image,
-			Price:   v.Price,
-			InStock: v.InStock,
+			ID:        v.ID,
+			SKU:       v.SKU,
+			Attributes: attrJSON,
+			ImageURL:  v.Image,
+			Price:     v.Price,
+			InStock:   v.InStock,
 		})
 	}
 	id, err := c.service.CreateProduct(context.Background(), product)
@@ -113,14 +113,14 @@ func (c *ProductController) UpdateProduct(ctx *gin.Context) {
 		product.Images = append(product.Images, ProductImage{ImageURL: img, ProductID: id})
 	}
 	for _, v := range req.Variants {
+		attrJSON, _ := json.Marshal(v.Attributes)
 		product.Variants = append(product.Variants, ProductVariant{
-			ID:      v.ID,
-			SKU:     v.SKU,
-			Color:   v.Color,
-			Size:    v.Size,
-			ImageURL: v.Image,
-			Price:   v.Price,
-			InStock: v.InStock,
+			ID:        v.ID,
+			SKU:       v.SKU,
+			Attributes: attrJSON,
+			ImageURL:  v.Image,
+			Price:     v.Price,
+			InStock:   v.InStock,
 			ProductID: id,
 		})
 	}
@@ -147,7 +147,8 @@ func (c *ProductController) GetProduct(ctx *gin.Context) {
 		ctx.JSON(http.StatusNotFound, gin.H{"error": "product not found"})
 		return
 	}
-	ctx.JSON(http.StatusOK, product)
+	resp := TransformProductToResponse(product)
+	ctx.JSON(http.StatusOK, resp)
 }
 
 func (c *ProductController) ListProducts(ctx *gin.Context) {
@@ -158,7 +159,11 @@ func (c *ProductController) ListProducts(ctx *gin.Context) {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	ctx.JSON(http.StatusOK, gin.H{"total": total, "data": products})
+	responses := make([]ProductResponse, len(products))
+	for i, p := range products {
+		responses[i] = TransformProductToResponse(&p)
+	}
+	ctx.JSON(http.StatusOK, gin.H{"total": total, "data": responses})
 }
 
 func (c *ProductController) Name() string {
