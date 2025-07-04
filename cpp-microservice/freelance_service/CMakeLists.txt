@@ -11,6 +11,8 @@ include_directories(
     models
     repositories
     controllers
+    plugins
+    plugs
 )
 
 add_executable(FreelanceService
@@ -26,6 +28,8 @@ add_executable(FreelanceService
     controllers/LogController.cpp
     controllers/VaultController.cpp
     controllers/ContactUsController.cpp
+    plugins/PluginManager.cpp
+    plugs/RackSackPlugin.cpp
 )
 
 target_link_libraries(FreelanceService

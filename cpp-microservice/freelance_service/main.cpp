@@ -4,8 +4,11 @@
 #include "controllers/VaultController.h"
 #include "controllers/ContactUsController.h"
 #include "models/ServiceLogger.h"
+#include "plugins/PluginManager.h"
+#include "plugs/RackSackPlugin.h"
 #include <csignal>
 #include <cstdlib>
+#include <thread>
 
 using namespace Pistache;
 
@@ -55,7 +58,26 @@ int main() {
     std::signal(SIGINT, handleSignal);
     std::signal(SIGTERM, handleSignal);
 
+    // Plugin system demo: run in a separate thread
+    PluginManager pluginManager;
+    pluginManager.registerPlugin(std::make_shared<RackSackPlugin>());
+    // Inject database pointer to all plugins
+    sqlite3* db = Database::getInstance(DatabaseUtils::DB_NAME);
+    pluginManager.setDatabaseForAll(db);
+    std::thread pluginThread([&pluginManager]() {
+        try {
+            pluginManager.runAll(); // or runAllParallel();
+        } catch (const std::exception& e) {
+            ServiceLogger::log(LogLevel::ERROR, std::string("Plugin error: ") + e.what());
+        }
+    });
+
+    // Start the server (blocking)
     server.serve();
+
+    // Wait for plugin thread to finish
+    if (pluginThread.joinable()) pluginThread.join();
+
     Database::close();
     return 0;
 }
