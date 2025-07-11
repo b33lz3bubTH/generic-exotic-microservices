@@ -3,6 +3,7 @@
 #include "controllers/LogController.h"
 #include "controllers/VaultController.h"
 #include "controllers/ContactUsController.h"
+#include "controllers/UserController.h"
 #include "models/ServiceLogger.h"
 #include "plugins/PluginManager.h"
 #include "plugs/RackSackPlugin.h"
@@ -50,6 +51,7 @@ int main() {
     HealthController healthController(router);
     VaultController vaultController(router);
     ContactUsController contactUsController(router);
+    UserController userController(router);
 
     // Set router as handler
     server.setHandler(router.handler());

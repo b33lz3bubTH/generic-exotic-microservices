@@ -25,9 +25,12 @@ add_executable(FreelanceService
     repositories/LogRepository.cpp
     repositories/VaultRepository.cpp
     repositories/ContactUsRepository.cpp
+    repositories/UserRepository.cpp
+    repositories/SessionRepository.cpp
     controllers/LogController.cpp
     controllers/VaultController.cpp
     controllers/ContactUsController.cpp
+    controllers/UserController.cpp
     plugins/PluginManager.cpp
     plugs/RackSackPlugin.cpp
 )
