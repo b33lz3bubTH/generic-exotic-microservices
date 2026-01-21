@@ -1,9 +1,0 @@
-dbfile: contactus.db
-ratelimit:
-  default:
-    post: 300
-    get: 900
-  controllers:
-    contactus:
-      post: 900
-      get: 300 
