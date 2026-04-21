@@ -51,7 +51,7 @@ std::string BlogService::createBlog(const BlogPost& blog) {
         
         BlogPost newBlog = blog;
         newBlog.slug = BlogPost().generateSlug(blog.title);
-        newBlog.published = false;
+        newBlog.status = BlogStatus::DRAFT;  // Admin creates blogs as draft
         newBlog.views = 0;
         
         // Format timestamps (simplified - just using current time as string)
