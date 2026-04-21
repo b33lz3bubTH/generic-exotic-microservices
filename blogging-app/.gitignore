@@ -1,0 +1,50 @@
+# Build directories
+build/
+cmake-build-debug/
+cmake-build-release/
+*.o
+*.so
+*.a
+*.dylib
+*.dll
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+CMakeLists.txt.user
+
+# Executables
+blogging_app
+*.exe
+
+# Dependencies
+third_party/
+vendor/
+
+# Logs
+*.log
+logs/
+
+# Environment files
+.env
+.env.local
+
+# Docker
+.dockerignore
+
+# Coverage
+coverage/
+*.gcov
+*.gcda
+*.gcno
+
+# Doxygen
+docs/html/
+docs/latex/
+
+# CMake
+CMakeUserPresets.json
