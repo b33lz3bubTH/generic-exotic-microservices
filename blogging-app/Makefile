@@ -136,7 +136,7 @@ health:
 	@echo "🏥 Checking service health..."
 	@echo "⏳ Waiting for services to be ready..."
 	@sleep 2
-	@curl -s http://localhost:8080/api/stats | jq '.' && echo "✅ API is healthy!" || echo "❌ API is down!"
+	@curl -s http://localhost:8080/api/albums/stats/overview | jq '.' && echo "✅ API is healthy!" || echo "❌ API is down!"
 
 # Utility targets
 restart: stop start

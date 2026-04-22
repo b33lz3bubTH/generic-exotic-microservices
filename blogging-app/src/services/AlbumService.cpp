@@ -1,442 +1,373 @@
 #include "services/AlbumService.h"
-#include <mongocxx/instance.hpp>
+
+#include <bsoncxx/builder/stream/array.hpp>
 #include <bsoncxx/builder/stream/document.hpp>
 #include <bsoncxx/json.hpp>
+#include <mongocxx/instance.hpp>
+#include <mongocxx/options/find.hpp>
 #include <random>
-#include <sstream>
-#include <iomanip>
 #include <chrono>
 #include <iostream>
 
+using bsoncxx::builder::stream::array;
+using bsoncxx::builder::stream::close_document;
 using bsoncxx::builder::stream::document;
 using bsoncxx::builder::stream::finalize;
+using bsoncxx::builder::stream::open_document;
 
 std::shared_ptr<mongocxx::client> AlbumService::client = nullptr;
-std::string AlbumService::db_name = "photo_sharing";
-std::string AlbumService::albums_collection = "albums";
+std::string AlbumService::dbName = "photo_sharing";
+std::string AlbumService::albumsCollection = "albums";
 
-bool AlbumService::initialize(const std::string& connection_string) {
+bool AlbumService::initialize(const std::string& connectionString) {
     try {
         mongocxx::instance::current();
-        mongocxx::uri uri(connection_string);
-        client = std::make_shared<mongocxx::client>(uri);
-        
-        // Test connection
-        auto ping_cmd = document{} << "ping" << 1 << finalize;
-        client->db(db_name).run_command(ping_cmd.view());
-        
-        std::cout << "✓ Connected to MongoDB" << std::endl;
+        client = std::make_shared<mongocxx::client>(mongocxx::uri(connectionString));
+        auto pingCmd = document{} << "ping" << 1 << finalize;
+        client->db(dbName).run_command(pingCmd.view());
         return true;
     } catch (const std::exception& e) {
-        std::cerr << "✗ MongoDB connection failed: " << e.what() << std::endl;
+        std::cerr << "Mongo initialization failed: " << e.what() << std::endl;
         return false;
     }
+}
+
+std::string AlbumService::nowEpochString() {
+    const auto now = std::chrono::system_clock::now().time_since_epoch();
+    return std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(now).count());
 }
 
 std::string AlbumService::createAlbum(const Album& album) {
     try {
         if (!client) {
-            std::cerr << "Database not initialized" << std::endl;
             return "";
         }
-        
-        auto db = client->db(db_name);
-        auto coll = db[albums_collection];
-        
-        Album new_album = album;
-        new_album.created_at = std::chrono::system_clock::now().time_since_epoch().count();
-        new_album.updated_at = new_album.created_at;
-        
-        auto result = coll.insert_one(new_album.toBson().view());
-        
-        if (result) {
-            return bsoncxx::to_json(result->inserted_id());
+
+        auto coll = client->db(dbName)[albumsCollection];
+        Album newAlbum = album;
+        newAlbum.created_at = nowEpochString();
+        newAlbum.updated_at = newAlbum.created_at;
+        newAlbum.status = AlbumStatus::DRAFT;
+        newAlbum.token_used = false;
+
+        auto result = coll.insert_one(newAlbum.toBson().view());
+        if (!result) {
+            return "";
         }
+        return result->inserted_id().get_oid().value.to_string();
     } catch (const std::exception& e) {
-        std::cerr << "Error creating album: " << e.what() << std::endl;
+        std::cerr << "createAlbum failed: " << e.what() << std::endl;
+        return "";
     }
-    
-    return "";
 }
 
 Album AlbumService::getAlbumById(const std::string& id) {
     Album empty;
     try {
-        if (!client) return empty;
-        
-        auto db = client->db(db_name);
-        auto coll = db[albums_collection];
-        
-        auto doc = coll.find_one(document{} << "_id" << bsoncxx::oid(id) << finalize);
-        
-        if (doc) {
-            return Album::fromBson(doc->view());
+        if (!client || id.empty()) {
+            return empty;
         }
+
+        auto coll = client->db(dbName)[albumsCollection];
+        auto doc = coll.find_one(document{} << "_id" << bsoncxx::oid(id) << finalize);
+        if (!doc) {
+            return empty;
+        }
+
+        return Album::fromBson(doc->view());
     } catch (const std::exception& e) {
-        std::cerr << "Error fetching album: " << e.what() << std::endl;
+        std::cerr << "getAlbumById failed: " << e.what() << std::endl;
+        return empty;
     }
-    
-    return empty;
 }
 
 Album AlbumService::getAlbumByToken(const std::string& token) {
     Album empty;
     try {
-        if (!client) return empty;
-        
-        auto db = client->db(db_name);
-        auto coll = db[albums_collection];
-        
-        auto doc = coll.find_one(document{} << "admin_token" << token << finalize);
-        
-        if (doc) {
-            return Album::fromBson(doc->view());
+        if (!client || token.empty()) {
+            return empty;
         }
+
+        auto coll = client->db(dbName)[albumsCollection];
+        auto doc = coll.find_one(document{} << "admin_token" << token << finalize);
+        if (!doc) {
+            return empty;
+        }
+
+        return Album::fromBson(doc->view());
     } catch (const std::exception& e) {
-        std::cerr << "Error fetching album by token: " << e.what() << std::endl;
+        std::cerr << "getAlbumByToken failed: " << e.what() << std::endl;
+        return empty;
     }
-    
-    return empty;
 }
 
 std::vector<Album> AlbumService::getAllAlbums(int page, int limit) {
     std::vector<Album> albums;
     try {
-        if (!client) return albums;
-        
-        auto db = client->db(db_name);
-        auto coll = db[albums_collection];
-        
+        if (!client) {
+            return albums;
+        }
+
+        auto coll = client->db(dbName)[albumsCollection];
         auto opts = mongocxx::options::find{};
-        opts.skip((page - 1) * limit);
-        opts.limit(limit);
-        
+        opts.skip((std::max)(0, page - 1) * (std::max)(1, limit));
+        opts.limit((std::max)(1, limit));
+
         auto cursor = coll.find({}, opts);
-        
-        for (auto&& doc : cursor) {
+        for (const auto& doc : cursor) {
             albums.push_back(Album::fromBson(doc));
         }
+        return albums;
     } catch (const std::exception& e) {
-        std::cerr << "Error fetching albums: " << e.what() << std::endl;
+        std::cerr << "getAllAlbums failed: " << e.what() << std::endl;
+        return albums;
     }
-    
-    return albums;
 }
 
 std::vector<Album> AlbumService::getAlbumsByStatus(AlbumStatus status, int page, int limit) {
     std::vector<Album> albums;
     try {
-        if (!client) return albums;
-        
-        auto db = client->db(db_name);
-        auto coll = db[albums_collection];
-        
+        if (!client) {
+            return albums;
+        }
+
+        auto coll = client->db(dbName)[albumsCollection];
         auto opts = mongocxx::options::find{};
-        opts.skip((page - 1) * limit);
-        opts.limit(limit);
-        
-        auto filter = document{} << "status" << albumStatusToString(status) << finalize;
-        auto cursor = coll.find(filter.view(), opts);
-        
-        for (auto&& doc : cursor) {
+        opts.skip((std::max)(0, page - 1) * (std::max)(1, limit));
+        opts.limit((std::max)(1, limit));
+
+        auto cursor = coll.find(document{} << "status" << albumStatusToString(status) << finalize, opts);
+        for (const auto& doc : cursor) {
             albums.push_back(Album::fromBson(doc));
         }
+        return albums;
     } catch (const std::exception& e) {
-        std::cerr << "Error fetching albums by status: " << e.what() << std::endl;
+        std::cerr << "getAlbumsByStatus failed: " << e.what() << std::endl;
+        return albums;
     }
-    
-    return albums;
-}
-
-bool AlbumService::updateAlbum(const std::string& id, const Album& album) {
-    try {
-        if (!client) return false;
-        
-        auto db = client->db(db_name);
-        auto coll = db[albums_collection];
-        
-        auto filter = document{} << "_id" << bsoncxx::oid(id) << finalize;
-        auto update = document{} << "$set" << open_document << "updated_at" 
-                     << std::chrono::system_clock::now().time_since_epoch().count()
-                     << close_document << finalize;
-        
-        auto result = coll.update_one(filter.view(), update.view());
-        return result && result->modified_count() > 0;
-    } catch (const std::exception& e) {
-        std::cerr << "Error updating album: " << e.what() << std::endl;
-    }
-    
-    return false;
 }
 
 bool AlbumService::deleteAlbum(const std::string& id) {
     try {
-        if (!client) return false;
-        
-        auto db = client->db(db_name);
-        auto coll = db[albums_collection];
-        
+        if (!client || id.empty()) {
+            return false;
+        }
+
+        auto coll = client->db(dbName)[albumsCollection];
         auto result = coll.delete_one(document{} << "_id" << bsoncxx::oid(id) << finalize);
-        return result && result->deleted_count() > 0;
+        return result && result->deleted_count() == 1;
     } catch (const std::exception& e) {
-        std::cerr << "Error deleting album: " << e.what() << std::endl;
+        std::cerr << "deleteAlbum failed: " << e.what() << std::endl;
+        return false;
     }
-    
-    return false;
 }
 
 bool AlbumService::submitAlbum(const std::string& id) {
     try {
-        if (!client) return false;
-        
-        auto db = client->db(db_name);
-        auto coll = db[albums_collection];
-        
-        auto filter = document{} << "_id" << bsoncxx::oid(id) << finalize;
-        auto update = document{} << "$set" << open_document 
-                     << "status" << albumStatusToString(AlbumStatus::SUBMITTED)
-                     << "updated_at" << std::chrono::system_clock::now().time_since_epoch().count()
-                     << close_document << finalize;
-        
-        auto result = coll.update_one(filter.view(), update.view());
-        return result && result->modified_count() > 0;
-    } catch (const std::exception& e) {
-        std::cerr << "Error submitting album: " << e.what() << std::endl;
-    }
-    
-    return false;
-}
+        if (!client || id.empty()) {
+            return false;
+        }
 
-bool AlbumService::approveAlbum(const std::string& id) {
-    try {
-        if (!client) return false;
-        
-        auto db = client->db(db_name);
-        auto coll = db[albums_collection];
-        
-        auto filter = document{} << "_id" << bsoncxx::oid(id) << finalize;
-        auto update = document{} << "$set" << open_document 
-                     << "status" << albumStatusToString(AlbumStatus::APPROVED)
-                     << "updated_at" << std::chrono::system_clock::now().time_since_epoch().count()
-                     << close_document << finalize;
-        
+        auto coll = client->db(dbName)[albumsCollection];
+        const auto now = nowEpochString();
+
+        auto filter = document{}
+                      << "_id" << bsoncxx::oid(id)
+                      << "status" << albumStatusToString(AlbumStatus::DRAFT)
+                      << "image_count" << open_document << "$gt" << 0 << close_document
+                      << finalize;
+
+        auto update = document{}
+                      << "$set" << open_document
+                      << "status" << albumStatusToString(AlbumStatus::SUBMITTED)
+                      << "updated_at" << now
+                      << close_document
+                      << finalize;
+
         auto result = coll.update_one(filter.view(), update.view());
-        return result && result->modified_count() > 0;
+        return result && result->modified_count() == 1;
     } catch (const std::exception& e) {
-        std::cerr << "Error approving album: " << e.what() << std::endl;
+        std::cerr << "submitAlbum failed: " << e.what() << std::endl;
+        return false;
     }
-    
-    return false;
 }
 
 bool AlbumService::publishAlbum(const std::string& id) {
     try {
-        if (!client) return false;
-        
-        auto db = client->db(db_name);
-        auto coll = db[albums_collection];
-        
-        auto filter = document{} << "_id" << bsoncxx::oid(id) << finalize;
-        auto now = std::chrono::system_clock::now().time_since_epoch().count();
-        auto update = document{} << "$set" << open_document 
-                     << "status" << albumStatusToString(AlbumStatus::PUBLISHED)
-                     << "published_at" << now
-                     << "updated_at" << now
-                     << close_document << finalize;
-        
-        auto result = coll.update_one(filter.view(), update.view());
-        return result && result->modified_count() > 0;
+        if (!client || id.empty()) {
+            return false;
+        }
+
+        auto coll = client->db(dbName)[albumsCollection];
+        const auto now = nowEpochString();
+
+        auto update = document{}
+                      << "$set" << open_document
+                      << "status" << albumStatusToString(AlbumStatus::PUBLISHED)
+                      << "published_at" << now
+                      << "updated_at" << now
+                      << close_document
+                      << finalize;
+
+        auto result = coll.update_one(document{} << "_id" << bsoncxx::oid(id) << finalize, update.view());
+        return result && result->modified_count() == 1;
     } catch (const std::exception& e) {
-        std::cerr << "Error publishing album: " << e.what() << std::endl;
+        std::cerr << "publishAlbum failed: " << e.what() << std::endl;
+        return false;
     }
-    
-    return false;
 }
 
 bool AlbumService::archiveAlbum(const std::string& id) {
     try {
-        if (!client) return false;
-        
-        auto db = client->db(db_name);
-        auto coll = db[albums_collection];
-        
-        auto filter = document{} << "_id" << bsoncxx::oid(id) << finalize;
-        auto update = document{} << "$set" << open_document 
-                     << "status" << albumStatusToString(AlbumStatus::ARCHIVED)
-                     << "updated_at" << std::chrono::system_clock::now().time_since_epoch().count()
-                     << close_document << finalize;
-        
-        auto result = coll.update_one(filter.view(), update.view());
-        return result && result->modified_count() > 0;
+        if (!client || id.empty()) {
+            return false;
+        }
+
+        auto coll = client->db(dbName)[albumsCollection];
+        auto update = document{}
+                      << "$set" << open_document
+                      << "status" << albumStatusToString(AlbumStatus::ARCHIVED)
+                      << "updated_at" << nowEpochString()
+                      << close_document
+                      << finalize;
+
+        auto result = coll.update_one(document{} << "_id" << bsoncxx::oid(id) << finalize, update.view());
+        return result && result->modified_count() == 1;
     } catch (const std::exception& e) {
-        std::cerr << "Error archiving album: " << e.what() << std::endl;
+        std::cerr << "archiveAlbum failed: " << e.what() << std::endl;
+        return false;
     }
-    
-    return false;
 }
 
 std::string AlbumService::generateAdminToken() {
     std::random_device rd;
     std::mt19937 gen(rd());
-    std::uniform_int_distribution<> dis(0, 15);
-    
-    std::stringstream ss;
-    ss << std::hex;
-    for (int i = 0; i < 32; ++i) {
-        ss << dis(gen);
-    }
-    
-    return ss.str();
-}
+    std::uniform_int_distribution<int> dist(0, 15);
 
-bool AlbumService::validateAndConsumeToken(const std::string& token) {
-    try {
-        if (!client) return false;
-        
-        auto db = client->db(db_name);
-        auto coll = db[albums_collection];
-        
-        auto filter = document{} << "admin_token" << token << "token_used" << false << finalize;
-        auto update = document{} << "$set" << open_document << "token_used" << true << close_document << finalize;
-        
-        auto result = coll.update_one(filter.view(), update.view());
-        return result && result->modified_count() > 0;
-    } catch (const std::exception& e) {
-        std::cerr << "Error validating token: " << e.what() << std::endl;
+    std::string token;
+    token.reserve(32);
+    static const char* hex = "0123456789abcdef";
+    for (int i = 0; i < 32; ++i) {
+        token.push_back(hex[dist(gen)]);
     }
-    
-    return false;
+    return token;
 }
 
 bool AlbumService::checkTokenValidity(const std::string& token) {
     try {
-        if (!client) return false;
-        
-        auto db = client->db(db_name);
-        auto coll = db[albums_collection];
-        
-        auto doc = coll.find_one(document{} << "admin_token" << token << "token_used" << false << finalize);
+        if (!client || token.empty()) {
+            return false;
+        }
+
+        auto coll = client->db(dbName)[albumsCollection];
+        auto doc = coll.find_one(document{}
+                                 << "admin_token" << token
+                                 << "token_used" << false
+                                 << "status" << albumStatusToString(AlbumStatus::DRAFT)
+                                 << finalize);
         return doc.has_value();
     } catch (const std::exception& e) {
-        std::cerr << "Error checking token: " << e.what() << std::endl;
+        std::cerr << "checkTokenValidity failed: " << e.what() << std::endl;
+        return false;
     }
-    
-    return false;
 }
 
-bool AlbumService::addImagesToAlbum(const std::string& album_id, const std::vector<Image>& images) {
+bool AlbumService::validateAndConsumeToken(const std::string& token, const std::string& albumId) {
     try {
-        if (!client) return false;
-        
-        auto db = client->db(db_name);
-        auto coll = db[albums_collection];
-        
-        auto filter = document{} << "_id" << bsoncxx::oid(album_id) << finalize;
-        
-        // Build images array
-        auto images_array = bsoncxx::builder::stream::array{};
-        for (const auto& img : images) {
-            images_array << img.toBson();
+        if (!client || token.empty() || albumId.empty()) {
+            return false;
         }
-        
-        auto update = document{} << "$push" << open_document 
-                     << "images" << bsoncxx::builder::stream::array{} << images_array << close_document
-                     << "$inc" << open_document << "image_count" << static_cast<int>(images.size())
-                     << close_document << finalize;
-        
-        auto result = coll.update_one(filter.view(), update.view());
-        return result && result->modified_count() > 0;
+
+        auto coll = client->db(dbName)[albumsCollection];
+        auto result = coll.update_one(
+            document{}
+                << "_id" << bsoncxx::oid(albumId)
+                << "admin_token" << token
+                << "token_used" << false
+                << finalize,
+            document{}
+                << "$set" << open_document
+                << "token_used" << true
+                << "updated_at" << nowEpochString()
+                << close_document
+                << finalize);
+
+        return result && result->modified_count() == 1;
     } catch (const std::exception& e) {
-        std::cerr << "Error adding images: " << e.what() << std::endl;
+        std::cerr << "validateAndConsumeToken failed: " << e.what() << std::endl;
+        return false;
     }
-    
-    return false;
 }
 
-bool AlbumService::approveImage(const std::string& album_id, const std::string& image_id) {
+bool AlbumService::addImageToAlbum(const std::string& albumId, const Image& image) {
     try {
-        if (!client) return false;
-        
-        auto db = client->db(db_name);
-        auto coll = db[albums_collection];
-        
-        auto filter = document{} << "_id" << bsoncxx::oid(album_id) 
-                     << "images.id" << image_id << finalize;
-        auto update = document{} << "$set" << open_document 
-                     << "images.$.status" << imageStatusToString(ImageStatus::APPROVED)
-                     << close_document
-                     << "$inc" << open_document << "public_image_count" << 1 << close_document << finalize;
-        
-        auto result = coll.update_one(filter.view(), update.view());
-        return result && result->modified_count() > 0;
-    } catch (const std::exception& e) {
-        std::cerr << "Error approving image: " << e.what() << std::endl;
-    }
-    
-    return false;
-}
-
-bool AlbumService::rejectImage(const std::string& album_id, const std::string& image_id) {
-    try {
-        if (!client) return false;
-        
-        auto db = client->db(db_name);
-        auto coll = db[albums_collection];
-        
-        auto filter = document{} << "_id" << bsoncxx::oid(album_id) 
-                     << "images.id" << image_id << finalize;
-        auto update = document{} << "$set" << open_document 
-                     << "images.$.status" << imageStatusToString(ImageStatus::REJECTED)
-                     << close_document << finalize;
-        
-        auto result = coll.update_one(filter.view(), update.view());
-        return result && result->modified_count() > 0;
-    } catch (const std::exception& e) {
-        std::cerr << "Error rejecting image: " << e.what() << std::endl;
-    }
-    
-    return false;
-}
-
-bool AlbumService::flagImageNSFW(const std::string& album_id, const std::string& image_id, const std::string& reason) {
-    try {
-        if (!client) return false;
-        
-        auto db = client->db(db_name);
-        auto coll = db[albums_collection];
-        
-        auto filter = document{} << "_id" << bsoncxx::oid(album_id) 
-                     << "images.id" << image_id << finalize;
-        auto update = document{} << "$set" << open_document 
-                     << "images.$.status" << imageStatusToString(ImageStatus::NSFW_FLAGGED)
-                     << "images.$.nsfw_flagged" << true
-                     << "images.$.nsfw_reason" << reason
-                     << close_document << finalize;
-        
-        auto result = coll.update_one(filter.view(), update.view());
-        return result && result->modified_count() > 0;
-    } catch (const std::exception& e) {
-        std::cerr << "Error flagging NSFW image: " << e.what() << std::endl;
-    }
-    
-    return false;
-}
-
-int AlbumService::getPublishedImageCount(const std::string& album_id) {
-    try {
-        if (!client) return 0;
-        
-        auto db = client->db(db_name);
-        auto coll = db[albums_collection];
-        
-        auto doc = coll.find_one(document{} << "_id" << bsoncxx::oid(album_id) << finalize);
-        
-        if (doc && doc->view()["public_image_count"]) {
-            return doc->view()["public_image_count"].get_int32().value;
+        if (!client || albumId.empty()) {
+            return false;
         }
+
+        auto coll = client->db(dbName)[albumsCollection];
+        auto now = nowEpochString();
+
+        auto filter = document{}
+                      << "_id" << bsoncxx::oid(albumId)
+                      << "status" << albumStatusToString(AlbumStatus::DRAFT)
+                      << "image_count" << open_document << "$lt" << 40 << close_document
+                      << finalize;
+
+        auto update = document{}
+                      << "$push" << open_document << "images" << image.toBson().view() << close_document
+                      << "$inc" << open_document << "image_count" << 1 << close_document
+                      << "$set" << open_document << "updated_at" << now << close_document
+                      << finalize;
+
+        auto result = coll.update_one(filter.view(), update.view());
+        return result && result->modified_count() == 1;
     } catch (const std::exception& e) {
-        std::cerr << "Error getting published image count: " << e.what() << std::endl;
+        std::cerr << "addImageToAlbum failed: " << e.what() << std::endl;
+        return false;
     }
-    
-    return 0;
+}
+
+bool AlbumService::updateImageStatus(const std::string& albumId,
+                                     const std::string& imageId,
+                                     ImageStatus status,
+                                     const std::string& nsfwReason) {
+    try {
+        if (!client || albumId.empty() || imageId.empty()) {
+            return false;
+        }
+
+        auto coll = client->db(dbName)[albumsCollection];
+        auto now = nowEpochString();
+
+        auto filter = document{}
+                      << "_id" << bsoncxx::oid(albumId)
+                      << "images.id" << imageId
+                      << finalize;
+
+        auto updateBuilder = document{};
+        updateBuilder << "$set" << open_document
+                      << "images.$.status" << imageStatusToString(status)
+                      << "images.$.updated_at" << now
+                      << "updated_at" << now;
+
+        if (status == ImageStatus::NSFW_FLAGGED) {
+            updateBuilder << "images.$.nsfw_flagged" << true
+                          << "images.$.nsfw_reason" << nsfwReason;
+        }
+
+        updateBuilder << close_document;
+
+        if (status == ImageStatus::APPROVED) {
+            updateBuilder << "$inc" << open_document << "public_image_count" << 1 << close_document;
+        }
+
+        auto update = updateBuilder << finalize;
+
+        auto result = coll.update_one(filter.view(), update.view());
+        return result && result->modified_count() == 1;
+    } catch (const std::exception& e) {
+        std::cerr << "updateImageStatus failed: " << e.what() << std::endl;
+        return false;
+    }
 }
