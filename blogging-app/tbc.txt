@@ -1,1 +1,11 @@
-i want a root key, for post routes, i want proper admin routes protection so that no one can come edit it or add new things, add something like a public endpoint so that people can submiit an blog, same like admin crreating blog, but it will be under status approved, then next stage is draft, then published, need proper things here, proper flow, i want a e2e folder, create a proper bash file, to test all the routes thats all. and admin wil do the same, dont write any documentation, e2e is my documentation
+i want this to be photo sharing site, where people will post images on an album
+
+1. admin generates a token, that can create a single albumb, and 40 images per album allowed, less is okay, but at max 40.
+
+2. second, images will have alt, caption and img url, i am thinking about cloudflare r2, so after uploading all the medias, jpeg, jpg and png it will go to cloudflare, for now save it to local, and preview it, but later i will change the adapter to store it to cloudflare r2
+
+3. so when creating albumb, its one time thing, take all the images, n=40, accept in backend. so when all images goes to server, from server to cloudflare r2 it will be done.
+
+4. after submitting no chance of edit, when admin view it, and they can individually select which will go to site from albumb, or whole albumb, it will be decided.
+
+5. i want proper controlling of images, as public can upload to it, and i want control for nsfw and prevention.

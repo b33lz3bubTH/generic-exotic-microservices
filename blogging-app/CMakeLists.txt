@@ -15,8 +15,11 @@ include_directories(${PROJECT_SOURCE_DIR}/include)
 # Source files
 set(SOURCES
     src/main.cpp
-    src/controllers/BlogController.cpp
-    src/services/BlogService.cpp
+    src/controllers/AlbumController.cpp
+    src/services/AlbumService.cpp
+    src/services/ImageService.cpp
+    src/models/Album.cpp
+    src/models/Image.cpp
     src/utils/SlugGenerator.cpp
 )
 

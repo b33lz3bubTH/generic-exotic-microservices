@@ -1,14 +1,14 @@
 .PHONY: help build run stop clean logs test dev prod
 
 # Variables
-PROJECT_NAME=blogging-app
+PROJECT_NAME=photo-sharing-app
 BUILD_DIR=build
 DOCKERFILE=Dockerfile
 COMPOSE_FILE=docker-compose.yml
 
 help:
 	@echo "═══════════════════════════════════════════════════════════"
-	@echo "         🌐 BLOGGING SERVICE - MAKEFILE COMMANDS"
+	@echo "      📸 PHOTO SHARING SERVICE - MAKEFILE COMMANDS"
 	@echo "═══════════════════════════════════════════════════════════"
 	@echo ""
 	@echo "📦 Build Commands:"
