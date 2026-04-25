@@ -1,33 +1,23 @@
 #pragma once
-
 #include <string>
-#include <vector>
-#include <chrono>
-#include "Image.h"
-
-enum class AlbumStatus {
-    DRAFT = 0,        // Initial state, awaiting image submission
-    SUBMITTED = 1,    // All images uploaded, awaiting approval
-    APPROVED = 2,     // Admin approved
-    PUBLISHED = 3,    // Live and visible
-    ARCHIVED = 4      // Archived/inactive
-};
-
-std::string albumStatusToString(AlbumStatus status);
-AlbumStatus albumStatusFromString(const std::string& status);
 
 class Album {
 public:
-    std::string id;
+    int id;
+    int user_id;
     std::string title;
     std::string description;
-    std::string admin_token;  // One-time use token to upload images
-    AlbumStatus status;
-    std::vector<Image> images;
-    int image_count;
-    std::string uploader_name;    // Name of the person who uploaded/created the album
-    std::string created_by;       // Admin/system ID
+    std::string privacy_level;  // "private", "public", "friends"
+    std::string cover_image_url;
+    std::string slug;
     std::string created_at;
+    std::string updated_at;
+
+    Album() : id(-1), user_id(-1), privacy_level("private") {}
+    Album(const std::string& title, int userId)
+        : id(-1), user_id(userId), title(title), privacy_level("private") {}
+    
+    std::string toJson() const;
     std::string updated_at;
     std::string published_at;
     bool token_used;              // Token consumption flag (one-time use)
