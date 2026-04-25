@@ -8,8 +8,8 @@
 
 int main() {
     try {
-        if (!AlbumService::initialize("mongodb://mongo:27017")) {
-            std::cerr << "Failed to initialize MongoDB.\n";
+        if (!AlbumService::initialize("")) {
+            std::cerr << "Failed to initialize album service.\n";
             return 1;
         }
 
@@ -18,16 +18,16 @@ int main() {
             return 1;
         }
 
-        auto app = drogon::app();
-        AlbumController::registerRoutes(*app);
+        auto& app = drogon::app();
+        AlbumController::registerRoutes(app);
 
-        app->registerPreSendingAdvice([](const drogon::HttpRequestPtr&, const drogon::HttpResponsePtr& resp) {
+        app.registerPreSendingAdvice([](const drogon::HttpRequestPtr&, const drogon::HttpResponsePtr& resp) {
             resp->addHeader("Access-Control-Allow-Origin", "*");
             resp->addHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
             resp->addHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Admin-Key");
         });
 
-        app->registerHandler("/api/{1}",
+        app.registerHandler("/api/{1}",
                              [](const drogon::HttpRequestPtr&, std::function<void(const drogon::HttpResponsePtr&)>&& cb) {
                                  auto resp = drogon::HttpResponse::newHttpResponse();
                                  resp->setStatusCode(drogon::k200OK);
@@ -35,11 +35,11 @@ int main() {
                              },
                              {drogon::Options});
 
-        app->addListener("0.0.0.0", 8080);
-        app->setThreadNum(4);
+        app.addListener("0.0.0.0", 8080);
+        app.setThreadNum(4);
 
         std::cout << "Photo sharing service running on :8080" << std::endl;
-        app->run();
+        app.run();
     } catch (const std::exception& e) {
         std::cerr << "Fatal error: " << e.what() << std::endl;
         return 1;

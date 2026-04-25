@@ -237,9 +237,9 @@ void AlbumController::uploadImagesToAlbum(const drogon::HttpRequestPtr& req,
         return;
     }
 
-    auto files = req->getUploadedFiles();
-    if (files.empty()) {
-        auto response = drogon::HttpResponse::newHttpJsonResponse(createJsonResponse(false, "At least one image required"));
+    auto json = req->getJsonObject();
+    if (!json || !(*json).isMember("images") || !(*json)["images"].isArray() || (*json)["images"].empty()) {
+        auto response = drogon::HttpResponse::newHttpJsonResponse(createJsonResponse(false, "At least one image required with format: {images: [{url, alt_text, caption}]}"));
         response->setStatusCode(HttpStatusCode::k400BadRequest);
         callback(response);
         return;
@@ -247,27 +247,26 @@ void AlbumController::uploadImagesToAlbum(const drogon::HttpRequestPtr& req,
 
     Json::Value uploaded(Json::arrayValue);
     int order = album.image_count + 1;
+    const auto& imagesArray = (*json)["images"];
 
-    for (const auto& file : files) {
+    for (size_t i = 0; i < imagesArray.size(); ++i) {
         if (!album.canAddImage()) {
             break;
         }
 
-        if (!ImageService::isAllowedFormat(file.getFileName())) {
+        const auto& fileData = imagesArray[static_cast<int>(i)];
+        if (!fileData.isMember("url") || fileData["url"].asString().empty()) {
             continue;
         }
 
-        const std::string storedPath = ImageService::uploadImage(file.getFilePath(), file.getFileName());
-        if (storedPath.empty()) {
-            continue;
-        }
+        std::string imageUrl = fileData["url"].asString();
 
         Image image;
         image.id = generateImageId();
         image.album_id = albumId;
-        image.url = storedPath;
-        image.alt_text = req->getParameter("alt_text").empty() ? "uploaded image" : req->getParameter("alt_text");
-        image.caption = req->getParameter("caption");
+        image.url = imageUrl;
+        image.alt_text = fileData.isMember("alt_text") ? fileData["alt_text"].asString() : "uploaded image";
+        image.caption = fileData.isMember("caption") ? fileData["caption"].asString() : "";
         image.display_order = order++;
         image.status = ImageStatus::PENDING;
         image.created_at = nowMs();
