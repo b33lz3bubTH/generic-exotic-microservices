@@ -1,49 +1,39 @@
 #pragma once
 
-#include <drogon/drogon.h>
+#include <pistache/endpoint.h>
+#include <pistache/http.h>
+#include <pistache/router.h>
 
 class AlbumController {
 public:
-    static void registerRoutes(drogon::HttpAppFramework& app);
+    explicit AlbumController(Pistache::Address address);
 
-    static void getPublishedAlbums(const drogon::HttpRequestPtr& req,
-                                   std::function<void(const drogon::HttpResponsePtr&)>&& callback);
-    static void getAlbumById(const drogon::HttpRequestPtr& req,
-                             std::function<void(const drogon::HttpResponsePtr&)>&& callback,
-                             const std::string& id);
-    static void getAlbumStats(const drogon::HttpRequestPtr& req,
-                              std::function<void(const drogon::HttpResponsePtr&)>&& callback);
-
-    static void createAlbum(const drogon::HttpRequestPtr& req,
-                            std::function<void(const drogon::HttpResponsePtr&)>&& callback);
-    static void uploadImagesToAlbum(const drogon::HttpRequestPtr& req,
-                                    std::function<void(const drogon::HttpResponsePtr&)>&& callback);
-    static void submitAlbumDraft(const drogon::HttpRequestPtr& req,
-                                 std::function<void(const drogon::HttpResponsePtr&)>&& callback);
-    static void getAllAlbums(const drogon::HttpRequestPtr& req,
-                             std::function<void(const drogon::HttpResponsePtr&)>&& callback);
-    static void getAlbumDetailsAdmin(const drogon::HttpRequestPtr& req,
-                                     std::function<void(const drogon::HttpResponsePtr&)>&& callback,
-                                     const std::string& id);
-
-    static void approveImage(const drogon::HttpRequestPtr& req,
-                             std::function<void(const drogon::HttpResponsePtr&)>&& callback);
-    static void rejectImage(const drogon::HttpRequestPtr& req,
-                            std::function<void(const drogon::HttpResponsePtr&)>&& callback);
-    static void flagImageNSFW(const drogon::HttpRequestPtr& req,
-                              std::function<void(const drogon::HttpResponsePtr&)>&& callback);
-
-    static void publishAlbum(const drogon::HttpRequestPtr& req,
-                             std::function<void(const drogon::HttpResponsePtr&)>&& callback,
-                             const std::string& id);
-    static void archiveAlbum(const drogon::HttpRequestPtr& req,
-                             std::function<void(const drogon::HttpResponsePtr&)>&& callback,
-                             const std::string& id);
-    static void deleteAlbum(const drogon::HttpRequestPtr& req,
-                            std::function<void(const drogon::HttpResponsePtr&)>&& callback,
-                            const std::string& id);
+    void init(size_t threads = 2);
+    void start();
+    void shutdown();
 
 private:
-    static bool verifyAdminKey(const drogon::HttpRequestPtr& req);
-    static bool rateLimitUpload(const std::string& key);
+    void setupRoutes();
+
+    void getPublishedAlbums(const Pistache::Rest::Request& req, Pistache::Http::ResponseWriter response);
+    void getAlbumById(const Pistache::Rest::Request& req, Pistache::Http::ResponseWriter response);
+    void getAlbumStats(const Pistache::Rest::Request& req, Pistache::Http::ResponseWriter response);
+
+    void createAlbum(const Pistache::Rest::Request& req, Pistache::Http::ResponseWriter response);
+    void uploadImagesToAlbum(const Pistache::Rest::Request& req, Pistache::Http::ResponseWriter response);
+    void submitAlbumDraft(const Pistache::Rest::Request& req, Pistache::Http::ResponseWriter response);
+    void getAllAlbums(const Pistache::Rest::Request& req, Pistache::Http::ResponseWriter response);
+    void getAlbumDetailsAdmin(const Pistache::Rest::Request& req, Pistache::Http::ResponseWriter response);
+    void approveImage(const Pistache::Rest::Request& req, Pistache::Http::ResponseWriter response);
+    void rejectImage(const Pistache::Rest::Request& req, Pistache::Http::ResponseWriter response);
+    void flagImageNSFW(const Pistache::Rest::Request& req, Pistache::Http::ResponseWriter response);
+    void publishAlbum(const Pistache::Rest::Request& req, Pistache::Http::ResponseWriter response);
+    void archiveAlbum(const Pistache::Rest::Request& req, Pistache::Http::ResponseWriter response);
+    void deleteAlbum(const Pistache::Rest::Request& req, Pistache::Http::ResponseWriter response);
+
+    bool verifyAdminKey(const Pistache::Rest::Request& req) const;
+    bool rateLimitUpload(const std::string& key);
+
+    std::shared_ptr<Pistache::Http::Endpoint> httpEndpoint;
+    Pistache::Rest::Router router;
 };
