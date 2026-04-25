@@ -45,6 +45,17 @@ std::string generateImageId() {
     return "img_" + nowMs() + "_" + std::to_string(++counter);
 }
 
+int parseQueryInt(const Rest::Request& req, const std::string& key, int fallback) {
+    if (auto value = req.query().get(key)) {
+        try {
+            return std::stoi(*value);
+        } catch (const std::exception&) {
+            return fallback;
+        }
+    }
+    return fallback;
+}
+
 bool parseJsonBody(const std::string& body, Json::Value& output) {
     Json::CharReaderBuilder builder;
     std::string errs;
@@ -79,7 +90,7 @@ AlbumController::AlbumController(Address address)
     : httpEndpoint(std::make_shared<Http::Endpoint>(address)) {}
 
 void AlbumController::init(size_t threads) {
-    auto opts = Http::Endpoint::options().threads(static_cast<int>(threads)).flags(Tcp::Options::InstallSignalHandler);
+    auto opts = Http::Endpoint::options().threads(static_cast<int>(threads));
     httpEndpoint->init(opts);
     setupRoutes();
 }
@@ -118,7 +129,7 @@ bool AlbumController::verifyAdminKey(const Rest::Request& req) const {
     const char* adminKey = std::getenv("PHOTO_ADMIN_KEY");
     const std::string expected = adminKey == nullptr ? "change-me-admin-key" : adminKey;
     auto header = req.headers().tryGetRaw("X-Admin-Key");
-    return header.has_value() && header.value() == expected;
+    return header.has_value() && header->value() == expected;
 }
 
 bool AlbumController::rateLimitUpload(const std::string& key) {
@@ -144,8 +155,8 @@ bool AlbumController::rateLimitUpload(const std::string& key) {
 }
 
 void AlbumController::getPublishedAlbums(const Rest::Request& req, Http::ResponseWriter response) {
-    int page = req.query().get("page").isEmpty() ? 1 : std::stoi(req.query().get("page").get());
-    int limit = req.query().get("limit").isEmpty() ? 10 : std::stoi(req.query().get("limit").get());
+    int page = parseQueryInt(req, "page", 1);
+    int limit = parseQueryInt(req, "limit", 10);
 
     auto albums = AlbumService::getAlbumsByStatus(AlbumStatus::PUBLISHED, page, limit);
     Json::Value data(Json::arrayValue);
@@ -366,8 +377,8 @@ void AlbumController::getAllAlbums(const Rest::Request& req, Http::ResponseWrite
         return;
     }
 
-    int page = req.query().get("page").isEmpty() ? 1 : std::stoi(req.query().get("page").get());
-    int limit = req.query().get("limit").isEmpty() ? 10 : std::stoi(req.query().get("limit").get());
+    int page = parseQueryInt(req, "page", 1);
+    int limit = parseQueryInt(req, "limit", 10);
 
     auto albums = AlbumService::getAllAlbums(page, limit);
     Json::Value data(Json::arrayValue);
