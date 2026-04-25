@@ -11,6 +11,7 @@ enum class ImageStatus {
 
 std::string imageStatusToString(ImageStatus status);
 ImageStatus imageStatusFromString(const std::string& status);
+bool canTransitionImageStatus(ImageStatus from, ImageStatus to);
 
 class Image {
 public:

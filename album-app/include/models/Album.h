@@ -8,13 +8,13 @@
 enum class AlbumStatus {
     DRAFT,
     SUBMITTED,
-    APPROVED,
     PUBLISHED,
     ARCHIVED
 };
 
 std::string albumStatusToString(AlbumStatus status);
 AlbumStatus albumStatusFromString(const std::string& status);
+bool canTransitionAlbumStatus(AlbumStatus from, AlbumStatus to);
 
 class Album {
 public:
@@ -32,6 +32,9 @@ public:
     std::string published_at;
     bool token_used{false};
     int public_image_count{0};
+    int pending_image_count{0};
+    int rejected_image_count{0};
+    int nsfw_image_count{0};
 
     std::string toJson(bool include_all_images = false) const;
     bool canAddImage() const { return image_count < 40; }

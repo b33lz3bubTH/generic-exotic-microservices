@@ -24,6 +24,23 @@ ImageStatus imageStatusFromString(const std::string& status) {
     return ImageStatus::PENDING;
 }
 
+bool canTransitionImageStatus(ImageStatus from, ImageStatus to) {
+    if (from == to) return true;
+
+    switch (from) {
+        case ImageStatus::PENDING:
+            return to == ImageStatus::APPROVED || to == ImageStatus::REJECTED || to == ImageStatus::NSFW_FLAGGED;
+        case ImageStatus::APPROVED:
+            return to == ImageStatus::REJECTED || to == ImageStatus::NSFW_FLAGGED;
+        case ImageStatus::REJECTED:
+            return to == ImageStatus::APPROVED || to == ImageStatus::NSFW_FLAGGED;
+        case ImageStatus::NSFW_FLAGGED:
+            return to == ImageStatus::REJECTED;
+        default:
+            return false;
+    }
+}
+
 std::string Image::toJson() const {
     std::ostringstream ss;
     ss << "{"

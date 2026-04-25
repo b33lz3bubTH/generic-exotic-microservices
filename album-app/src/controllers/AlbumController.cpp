@@ -165,7 +165,7 @@ void AlbumController::getPublishedAlbums(const Rest::Request& req, Http::Respons
 void AlbumController::getAlbumById(const Rest::Request& req, Http::ResponseWriter response) {
     const auto id = req.param(":id").as<std::string>();
     auto album = AlbumService::getAlbumById(id);
-    if (album.id.empty()) {
+    if (album.id.empty() || album.status != AlbumStatus::PUBLISHED) {
         response.send(Http::Code::Not_Found, toBody(createJsonResponse(false, "Album not found")), MIME(Application, Json));
         return;
     }
@@ -420,8 +420,8 @@ void AlbumController::approveImage(const Rest::Request& req, Http::ResponseWrite
     }
 
     const bool ok = AlbumService::updateImageStatus(json["album_id"].asString(), json["image_id"].asString(), ImageStatus::APPROVED);
-    response.send(ok ? Http::Code::Ok : Http::Code::Internal_Server_Error,
-                  toBody(createJsonResponse(ok, ok ? "Image approved" : "Update failed")), MIME(Application, Json));
+    response.send(ok ? Http::Code::Ok : Http::Code::Bad_Request,
+                  toBody(createJsonResponse(ok, ok ? "Image approved" : "Invalid image state transition")), MIME(Application, Json));
 }
 
 void AlbumController::rejectImage(const Rest::Request& req, Http::ResponseWriter response) {
@@ -437,8 +437,8 @@ void AlbumController::rejectImage(const Rest::Request& req, Http::ResponseWriter
     }
 
     const bool ok = AlbumService::updateImageStatus(json["album_id"].asString(), json["image_id"].asString(), ImageStatus::REJECTED);
-    response.send(ok ? Http::Code::Ok : Http::Code::Internal_Server_Error,
-                  toBody(createJsonResponse(ok, ok ? "Image rejected" : "Update failed")), MIME(Application, Json));
+    response.send(ok ? Http::Code::Ok : Http::Code::Bad_Request,
+                  toBody(createJsonResponse(ok, ok ? "Image rejected" : "Invalid image state transition")), MIME(Application, Json));
 }
 
 void AlbumController::flagImageNSFW(const Rest::Request& req, Http::ResponseWriter response) {
@@ -459,8 +459,8 @@ void AlbumController::flagImageNSFW(const Rest::Request& req, Http::ResponseWrit
         ImageStatus::NSFW_FLAGGED,
         json.isMember("reason") ? json["reason"].asString() : "manual moderation");
 
-    response.send(ok ? Http::Code::Ok : Http::Code::Internal_Server_Error,
-                  toBody(createJsonResponse(ok, ok ? "Image flagged" : "Update failed")), MIME(Application, Json));
+    response.send(ok ? Http::Code::Ok : Http::Code::Bad_Request,
+                  toBody(createJsonResponse(ok, ok ? "Image flagged" : "Invalid image state transition")), MIME(Application, Json));
 }
 
 void AlbumController::publishAlbum(const Rest::Request& req, Http::ResponseWriter response) {
@@ -471,8 +471,8 @@ void AlbumController::publishAlbum(const Rest::Request& req, Http::ResponseWrite
 
     const auto id = req.param(":id").as<std::string>();
     const bool ok = AlbumService::publishAlbum(id);
-    response.send(ok ? Http::Code::Ok : Http::Code::Internal_Server_Error,
-                  toBody(createJsonResponse(ok, ok ? "Album published" : "Publish failed")), MIME(Application, Json));
+    response.send(ok ? Http::Code::Ok : Http::Code::Bad_Request,
+                  toBody(createJsonResponse(ok, ok ? "Album published" : "Album must be submitted, fully moderated, and contain approved images")), MIME(Application, Json));
 }
 
 void AlbumController::archiveAlbum(const Rest::Request& req, Http::ResponseWriter response) {
@@ -483,8 +483,8 @@ void AlbumController::archiveAlbum(const Rest::Request& req, Http::ResponseWrite
 
     const auto id = req.param(":id").as<std::string>();
     const bool ok = AlbumService::archiveAlbum(id);
-    response.send(ok ? Http::Code::Ok : Http::Code::Internal_Server_Error,
-                  toBody(createJsonResponse(ok, ok ? "Album archived" : "Archive failed")), MIME(Application, Json));
+    response.send(ok ? Http::Code::Ok : Http::Code::Bad_Request,
+                  toBody(createJsonResponse(ok, ok ? "Album archived" : "Invalid album state transition")), MIME(Application, Json));
 }
 
 void AlbumController::deleteAlbum(const Rest::Request& req, Http::ResponseWriter response) {

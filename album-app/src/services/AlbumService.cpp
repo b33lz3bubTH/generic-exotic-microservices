@@ -5,10 +5,40 @@
 #include <iostream>
 #include <map>
 #include <set>
+#include <mutex>
 
 // In-memory storage for now
 static std::map<std::string, Album> albums;
 static std::set<std::string> validTokens;
+static std::mutex albumsMutex;
+
+namespace {
+void recomputeAlbumCounters(Album& album) {
+    album.image_count = static_cast<int>(album.images.size());
+    album.public_image_count = 0;
+    album.pending_image_count = 0;
+    album.rejected_image_count = 0;
+    album.nsfw_image_count = 0;
+
+    for (const auto& image : album.images) {
+        switch (image.status) {
+            case ImageStatus::APPROVED:
+                ++album.public_image_count;
+                break;
+            case ImageStatus::REJECTED:
+                ++album.rejected_image_count;
+                break;
+            case ImageStatus::NSFW_FLAGGED:
+                ++album.nsfw_image_count;
+                break;
+            case ImageStatus::PENDING:
+            default:
+                ++album.pending_image_count;
+                break;
+        }
+    }
+}
+}  // namespace
 
 std::string AlbumService::nowEpochString() {
     const auto now = std::chrono::system_clock::now().time_since_epoch();
@@ -22,6 +52,7 @@ bool AlbumService::initialize(const std::string& connectionString) {
 }
 
 std::string AlbumService::createAlbum(const Album& album) {
+    std::lock_guard<std::mutex> lock(albumsMutex);
     std::string id = std::to_string(albums.size() + 1);
     Album newAlbum = album;
     newAlbum.id = id;
@@ -35,6 +66,7 @@ std::string AlbumService::createAlbum(const Album& album) {
 }
 
 Album AlbumService::getAlbumById(const std::string& id) {
+    std::lock_guard<std::mutex> lock(albumsMutex);
     Album empty;
     auto it = albums.find(id);
     if (it != albums.end()) {
@@ -44,6 +76,7 @@ Album AlbumService::getAlbumById(const std::string& id) {
 }
 
 Album AlbumService::getAlbumByToken(const std::string& token) {
+    std::lock_guard<std::mutex> lock(albumsMutex);
     Album empty;
     for (auto& pair : albums) {
         if (pair.second.admin_token == token) {
@@ -54,6 +87,7 @@ Album AlbumService::getAlbumByToken(const std::string& token) {
 }
 
 std::vector<Album> AlbumService::getAllAlbums(int page, int limit) {
+    std::lock_guard<std::mutex> lock(albumsMutex);
     std::vector<Album> result;
     int skip = (page - 1) * limit;
     int count = 0;
@@ -68,6 +102,7 @@ std::vector<Album> AlbumService::getAllAlbums(int page, int limit) {
 }
 
 std::vector<Album> AlbumService::getAlbumsByStatus(AlbumStatus status, int page, int limit) {
+    std::lock_guard<std::mutex> lock(albumsMutex);
     std::vector<Album> result;
     int skip = (page - 1) * limit;
     int count = 0;
@@ -84,12 +119,16 @@ std::vector<Album> AlbumService::getAlbumsByStatus(AlbumStatus status, int page,
 }
 
 bool AlbumService::deleteAlbum(const std::string& id) {
+    std::lock_guard<std::mutex> lock(albumsMutex);
     return albums.erase(id) > 0;
 }
 
 bool AlbumService::submitAlbum(const std::string& id) {
+    std::lock_guard<std::mutex> lock(albumsMutex);
     auto it = albums.find(id);
-    if (it != albums.end() && it->second.status == AlbumStatus::DRAFT && it->second.image_count > 0) {
+    if (it != albums.end() &&
+        canTransitionAlbumStatus(it->second.status, AlbumStatus::SUBMITTED) &&
+        it->second.image_count > 0) {
         it->second.status = AlbumStatus::SUBMITTED;
         it->second.updated_at = nowEpochString();
         return true;
@@ -98,8 +137,12 @@ bool AlbumService::submitAlbum(const std::string& id) {
 }
 
 bool AlbumService::publishAlbum(const std::string& id) {
+    std::lock_guard<std::mutex> lock(albumsMutex);
     auto it = albums.find(id);
-    if (it != albums.end()) {
+    if (it != albums.end() &&
+        canTransitionAlbumStatus(it->second.status, AlbumStatus::PUBLISHED) &&
+        it->second.public_image_count > 0 &&
+        it->second.pending_image_count == 0) {
         it->second.status = AlbumStatus::PUBLISHED;
         it->second.published_at = nowEpochString();
         it->second.updated_at = nowEpochString();
@@ -109,8 +152,9 @@ bool AlbumService::publishAlbum(const std::string& id) {
 }
 
 bool AlbumService::archiveAlbum(const std::string& id) {
+    std::lock_guard<std::mutex> lock(albumsMutex);
     auto it = albums.find(id);
-    if (it != albums.end()) {
+    if (it != albums.end() && canTransitionAlbumStatus(it->second.status, AlbumStatus::ARCHIVED)) {
         it->second.status = AlbumStatus::ARCHIVED;
         it->second.updated_at = nowEpochString();
         return true;
@@ -129,20 +173,29 @@ std::string AlbumService::generateAdminToken() {
     for (int i = 0; i < 32; ++i) {
         token += hex[dist(gen)];
     }
-    validTokens.insert(token);
+    {
+        std::lock_guard<std::mutex> lock(albumsMutex);
+        validTokens.insert(token);
+    }
     return token;
 }
 
 bool AlbumService::checkTokenValidity(const std::string& token) {
+    std::lock_guard<std::mutex> lock(albumsMutex);
     return validTokens.find(token) != validTokens.end();
 }
 
 bool AlbumService::validateAndConsumeToken(const std::string& token, const std::string& albumId) {
+    std::lock_guard<std::mutex> lock(albumsMutex);
     if (validTokens.find(token) != validTokens.end()) {
         auto it = albums.find(albumId);
-        if (it != albums.end()) {
+        if (it != albums.end() &&
+            it->second.admin_token == token &&
+            !it->second.token_used &&
+            it->second.status == AlbumStatus::DRAFT) {
             it->second.token_used = true;
             validTokens.erase(token);
+            it->second.updated_at = nowEpochString();
             return true;
         }
     }
@@ -150,10 +203,12 @@ bool AlbumService::validateAndConsumeToken(const std::string& token, const std::
 }
 
 bool AlbumService::addImageToAlbum(const std::string& albumId, const Image& image) {
+    std::lock_guard<std::mutex> lock(albumsMutex);
     auto it = albums.find(albumId);
-    if (it != albums.end()) {
+    if (it != albums.end() && it->second.status == AlbumStatus::DRAFT && !it->second.token_used && it->second.canAddImage()) {
         it->second.images.push_back(image);
-        it->second.image_count = it->second.images.size();
+        recomputeAlbumCounters(it->second);
+        it->second.updated_at = nowEpochString();
         return true;
     }
     return false;
@@ -163,14 +218,22 @@ bool AlbumService::updateImageStatus(const std::string& albumId,
                                      const std::string& imageId,
                                      ImageStatus status,
                                      const std::string& nsfwReason) {
+    std::lock_guard<std::mutex> lock(albumsMutex);
     auto it = albums.find(albumId);
-    if (it != albums.end()) {
+    if (it != albums.end() && it->second.status != AlbumStatus::DRAFT) {
         for (auto& img : it->second.images) {
             if (img.id == imageId) {
+                if (!canTransitionImageStatus(img.status, status)) {
+                    return false;
+                }
                 img.status = status;
+                img.nsfw_flagged = (status == ImageStatus::NSFW_FLAGGED);
                 if (!nsfwReason.empty()) {
                     img.nsfw_reason = nsfwReason;
                 }
+                img.updated_at = nowEpochString();
+                recomputeAlbumCounters(it->second);
+                it->second.updated_at = nowEpochString();
                 return true;
             }
         }

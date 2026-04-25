@@ -9,6 +9,26 @@ This service is album-centric (Instagram-like photo sharing), with strict modera
 - Admin moderates images and album publication.
 - Local disk image storage today (R2 adapter can be plugged in later).
 
+## State Machines
+
+### Album state machine
+
+- `draft -> submitted` (submit endpoint, requires at least one image)
+- `submitted -> published` (publish endpoint, requires all images moderated and at least one approved image)
+- `submitted -> archived`
+- `published -> archived`
+
+Invalid transitions are rejected.
+
+### Image state machine
+
+- `pending -> approved | rejected | nsfw_flagged`
+- `approved -> rejected | nsfw_flagged`
+- `rejected -> approved | nsfw_flagged`
+- `nsfw_flagged -> rejected`
+
+Only approved images are shown on public endpoints. Admin endpoints always return full image sets.
+
 ## Security Model
 
 - Admin endpoints require `X-Admin-Key` header.
