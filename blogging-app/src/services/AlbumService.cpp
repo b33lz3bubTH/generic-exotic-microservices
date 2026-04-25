@@ -17,7 +17,7 @@ std::string AlbumService::nowEpochString() {
 
 bool AlbumService::initialize(const std::string& connectionString) {
     // For now, just log that we're using in-memory storage
-    std::cerr << "AlbumService: Using in-memory storage (not MongoDB)" << std::endl;
+    std::cerr << "AlbumService: Using in-memory storage backend" << std::endl;
     return true;
 }
 
