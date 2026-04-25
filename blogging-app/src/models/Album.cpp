@@ -1,21 +1,25 @@
 #include "models/Album.h"
 
 #include <sstream>
-#include <iostream>
 
 std::string albumStatusToString(AlbumStatus status) {
     switch (status) {
-        case AlbumStatus::DRAFT: return "draft";
-        case AlbumStatus::SUBMITTED: return "submitted";
-        case AlbumStatus::APPROVED: return "approved";
-        case AlbumStatus::PUBLISHED: return "published";
-        case AlbumStatus::ARCHIVED: return "archived";
-        default: return "unknown";
+        case AlbumStatus::DRAFT:
+            return "draft";
+        case AlbumStatus::SUBMITTED:
+            return "submitted";
+        case AlbumStatus::APPROVED:
+            return "approved";
+        case AlbumStatus::PUBLISHED:
+            return "published";
+        case AlbumStatus::ARCHIVED:
+            return "archived";
+        default:
+            return "unknown";
     }
 }
 
 AlbumStatus albumStatusFromString(const std::string& status) {
-    if (status == "draft") return AlbumStatus::DRAFT;
     if (status == "submitted") return AlbumStatus::SUBMITTED;
     if (status == "approved") return AlbumStatus::APPROVED;
     if (status == "published") return AlbumStatus::PUBLISHED;
@@ -24,7 +28,7 @@ AlbumStatus albumStatusFromString(const std::string& status) {
 }
 
 std::string Album::toJson(bool include_all_images) const {
-    std::stringstream ss;
+    std::ostringstream ss;
     ss << "{"
        << "\"id\":\"" << id << "\"," 
        << "\"title\":\"" << title << "\"," 

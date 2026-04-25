@@ -1,20 +1,23 @@
 #include "models/Image.h"
 
 #include <sstream>
-#include <iostream>
 
 std::string imageStatusToString(ImageStatus status) {
     switch (status) {
-        case ImageStatus::PENDING: return "pending";
-        case ImageStatus::APPROVED: return "approved";
-        case ImageStatus::REJECTED: return "rejected";
-        case ImageStatus::NSFW_FLAGGED: return "nsfw_flagged";
-        default: return "unknown";
+        case ImageStatus::PENDING:
+            return "pending";
+        case ImageStatus::APPROVED:
+            return "approved";
+        case ImageStatus::REJECTED:
+            return "rejected";
+        case ImageStatus::NSFW_FLAGGED:
+            return "nsfw_flagged";
+        default:
+            return "unknown";
     }
 }
 
 ImageStatus imageStatusFromString(const std::string& status) {
-    if (status == "pending") return ImageStatus::PENDING;
     if (status == "approved") return ImageStatus::APPROVED;
     if (status == "rejected") return ImageStatus::REJECTED;
     if (status == "nsfw_flagged") return ImageStatus::NSFW_FLAGGED;
@@ -22,7 +25,7 @@ ImageStatus imageStatusFromString(const std::string& status) {
 }
 
 std::string Image::toJson() const {
-    std::stringstream ss;
+    std::ostringstream ss;
     ss << "{"
        << "\"id\":\"" << id << "\"," 
        << "\"album_id\":\"" << album_id << "\"," 
@@ -38,8 +41,7 @@ std::string Image::toJson() const {
        << "}";
     return ss.str();
 }
-}
 
 bool Image::validate() const {
-    return !id.empty() && !url.empty() && !alt_text.empty();
+    return !id.empty() && !album_id.empty() && !url.empty();
 }

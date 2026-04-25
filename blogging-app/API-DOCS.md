@@ -66,12 +66,21 @@ Body:
 ### `POST /admin/images/upload`
 Upload one or many images while album is in `draft`.
 
-Form-data:
-- `album_id`
-- `token`
-- `images` (repeat this field for multiple files)
-- `alt_text` (optional global fallback)
-- `caption` (optional global fallback)
+JSON body:
+```json
+{
+  "album_id": "<album-id>",
+  "token": "<album-token>",
+  "images": [
+    {
+      "file_name": "cover.png",
+      "content_base64": "<base64-image-bytes>",
+      "alt_text": "optional",
+      "caption": "optional"
+    }
+  ]
+}
+```
 
 ### `POST /admin/albums/submit`
 Finalize draft upload and consume token. After this, no more image upload.
