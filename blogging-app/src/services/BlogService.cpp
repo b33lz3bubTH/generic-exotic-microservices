@@ -1,53 +1,138 @@
 #include "services/BlogService.h"
-#include <mongocxx/instance.hpp>
-#include <bsoncxx/builder/stream/document.hpp>
-#include <bsoncxx/types.hpp>
 #include <chrono>
-#include <sstream>
-#include <iomanip>
 #include <iostream>
+#include <map>
 
 // Static member initialization
-mongocxx::client BlogService::mongo_client;
 bool BlogService::initialized = false;
+static std::map<std::string, BlogPost> blogs;
 
 BlogService::BlogService() {
     if (!initialized) {
-        throw std::runtime_error("BlogService not initialized. Call initialize() first.");
+        initialized = true;
     }
-    db = mongo_client["blog_db"];
 }
 
 bool BlogService::initialize(const std::string& uri) {
-    try {
-        static mongocxx::instance inst{};
-        mongo_client = mongocxx::client{mongocxx::uri{uri}};
-        
-        // Test connection
-        auto admin = mongo_client.database("admin");
-        auto result = admin.run_command(bsoncxx::from_json(R"({"ping": 1})"));
-        
-        initialized = true;
-        std::cout << "MongoDB connection established successfully!" << std::endl;
-        return true;
-    } catch (const std::exception& e) {
-        std::cerr << "Failed to initialize MongoDB: " << e.what() << std::endl;
-        return false;
-    }
-}
-
-mongocxx::collection BlogService::getBlogsCollection() {
-    auto db = mongo_client["blog_db"];
-    return db["blogs"];
+    initialized = true;
+    std::cout << "BlogService: Using in-memory storage (not MongoDB)" << std::endl;
+    return true;
 }
 
 std::string BlogService::createBlog(const BlogPost& blog) {
-    try {
-        auto collection = getBlogsCollection();
-        
-        // Get current timestamp
-        auto now = std::chrono::system_clock::now();
-        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
+    std::string id = std::to_string(blogs.size() + 1);
+    BlogPost newBlog = blog;
+    newBlog.id = id;
+    blogs[id] = newBlog;
+    return id;
+}
+
+BlogPost BlogService::getBlogById(const std::string& id) {
+    auto it = blogs.find(id);
+    if (it != blogs.end()) {
+        return it->second;
+    }
+    BlogPost empty;
+    return empty;
+}
+
+BlogPost BlogService::getBlogBySlug(const std::string& slug) {
+    for (auto& pair : blogs) {
+        if (pair.second.slug == slug) {
+            return pair.second;
+        }
+    }
+    BlogPost empty;
+    return empty;
+}
+
+std::vector<BlogPost> BlogService::getAllBlogs(int page, int limit) {
+    std::vector<BlogPost> result;
+    int skip = (page - 1) * limit;
+    int count = 0;
+    
+    for (auto& pair : blogs) {
+        if (count >= skip && count < skip + limit) {
+            result.push_back(pair.second);
+        }
+        count++;
+    }
+    return result;
+}
+
+std::vector<BlogPost> BlogService::updateBlog(const std::string& id, const BlogPost& blog) {
+    std::vector<BlogPost> result;
+    auto it = blogs.find(id);
+    if (it != blogs.end()) {
+        it->second = blog;
+        result.push_back(it->second);
+    }
+    return result;
+}
+
+bool BlogService::deleteBlog(const std::string& id) {
+    return blogs.erase(id) > 0;
+}
+
+std::vector<BlogPost> BlogService::searchByTitle(const std::string& query, int page, int limit) {
+    std::vector<BlogPost> result;
+    int skip = (page - 1) * limit;
+    int count = 0;
+    
+    for (auto& pair : blogs) {
+        if (pair.second.title.find(query) != std::string::npos) {
+            if (count >= skip && count < skip + limit) {
+                result.push_back(pair.second);
+            }
+            count++;
+        }
+    }
+    return result;
+}
+
+std::vector<BlogPost> BlogService::searchByTag(const std::string& tag, int page, int limit) {
+    std::vector<BlogPost> result;
+    return result;
+}
+
+std::vector<BlogPost> BlogService::searchByAuthor(const std::string& author, int page, int limit) {
+    std::vector<BlogPost> result;
+    return result;
+}
+
+std::vector<BlogPost> BlogService::searchByCategory(const std::string& category, int page, int limit) {
+    std::vector<BlogPost> result;
+    return result;
+}
+
+std::vector<BlogPost> BlogService::advancedSearch(
+    const std::string& query,
+    const std::vector<std::string>& tags,
+    const std::string& author,
+    const std::string& category,
+    int page,
+    int limit) {
+    std::vector<BlogPost> result;
+    return result;
+}
+
+long long BlogService::getTotalBlogCount() {
+    return blogs.size();
+}
+
+long long BlogService::getTotalBlogCountByCategory(const std::string& category) {
+    return 0;
+}
+
+std::vector<std::pair<std::string, long long>> BlogService::getPopularTags() {
+    std::vector<std::pair<std::string, long long>> result;
+    return result;
+}
+
+std::vector<std::pair<std::string, long long>> BlogService::getCategories() {
+    std::vector<std::pair<std::string, long long>> result;
+    return result;
+}
         
         BlogPost newBlog = blog;
         newBlog.slug = BlogPost().generateSlug(blog.title);

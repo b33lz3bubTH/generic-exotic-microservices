@@ -6,8 +6,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Find required packages
 find_package(Drogon REQUIRED)
-find_package(mongodb REQUIRED)
-find_package(mongocxx REQUIRED)
 
 # Include directories
 include_directories(${PROJECT_SOURCE_DIR}/include)
@@ -29,8 +27,6 @@ add_executable(blogging_app ${SOURCES})
 # Link libraries
 target_link_libraries(blogging_app 
     Drogon::Drogon
-    mongo::mongocxx_shared
-    mongo::bsoncxx_shared
 )
 
 # Set compiler flags for better warnings

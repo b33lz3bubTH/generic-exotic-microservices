@@ -2,8 +2,6 @@
 
 #include <string>
 #include <chrono>
-#include <bsoncxx/document/view.hpp>
-#include <bsoncxx/json.hpp>
 
 enum class ImageStatus {
     PENDING = 0,      // Waiting for approval
@@ -31,14 +29,8 @@ public:
 
     Image() : display_order(0), status(ImageStatus::PENDING), nsfw_flagged(false) {}
 
-    // Convert BSON document to Image
-    static Image fromBson(const bsoncxx::document::view& doc);
-    
     // Convert Image to JSON string
     std::string toJson() const;
-    
-    // Convert Image to BSON for database operations
-    bsoncxx::document::value toBson() const;
 
     // Validate image data
     bool validate() const;

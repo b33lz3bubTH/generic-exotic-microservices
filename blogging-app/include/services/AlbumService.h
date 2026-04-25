@@ -1,6 +1,5 @@
 #pragma once
 
-#include <mongocxx/client.hpp>
 #include <memory>
 #include <string>
 #include <vector>
@@ -34,9 +33,6 @@ public:
                                   const std::string& nsfwReason = "");
 
 private:
-    static std::shared_ptr<mongocxx::client> client;
-    static std::string dbName;
-    static std::string albumsCollection;
 
     static std::string nowEpochString();
 };

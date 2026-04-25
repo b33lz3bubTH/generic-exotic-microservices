@@ -3,8 +3,6 @@
 #include <string>
 #include <vector>
 #include <chrono>
-#include <bsoncxx/document/view.hpp>
-#include <bsoncxx/json.hpp>
 #include "Image.h"
 
 enum class AlbumStatus {
@@ -39,14 +37,8 @@ public:
     
     Album() : status(AlbumStatus::DRAFT), image_count(0), token_used(false), public_image_count(0) {}
 
-    // Convert BSON document to Album
-    static Album fromBson(const bsoncxx::document::view& doc);
-    
     // Convert Album to JSON string
     std::string toJson(bool include_all_images = false) const;
-    
-    // Convert Album to BSON for database operations
-    bsoncxx::document::value toBson() const;
 
     // Helper functions
     bool canAddImage() const { return image_count < 40; }

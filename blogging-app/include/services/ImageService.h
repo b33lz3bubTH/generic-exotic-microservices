@@ -2,7 +2,6 @@
 
 #include <string>
 #include <vector>
-#include <mongocxx/client.hpp>
 #include "models/Image.h"
 
 class ImageService {

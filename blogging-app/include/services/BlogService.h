@@ -1,16 +1,12 @@
 #pragma once
 
 #include "models/BlogPost.h"
-#include <mongocxx/client.hpp>
-#include <mongocxx/database.hpp>
 #include <string>
 #include <vector>
 #include <memory>
 
 class BlogService {
 private:
-    mongocxx::database db;
-    static mongocxx::client mongo_client;
     static bool initialized;
 
 public:
