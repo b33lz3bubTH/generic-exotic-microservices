@@ -1,10 +1,14 @@
 #include "controllers/AlbumController.h"
 
 #include <json/json.h>
+#include <openssl/evp.h>
+
 #include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <mutex>
 #include <sstream>
 #include <unordered_map>
@@ -12,7 +16,7 @@
 #include "services/AlbumService.h"
 #include "services/ImageService.h"
 
-using HttpStatusCode = drogon::HttpStatusCode;
+using namespace Pistache;
 
 namespace {
 Json::Value createJsonResponse(bool success, const std::string& message, const Json::Value& data = Json::Value()) {
@@ -25,6 +29,12 @@ Json::Value createJsonResponse(bool success, const std::string& message, const J
     return response;
 }
 
+std::string toBody(const Json::Value& value) {
+    Json::StreamWriterBuilder builder;
+    builder["indentation"] = "";
+    return Json::writeString(builder, value);
+}
+
 std::string nowMs() {
     const auto now = std::chrono::system_clock::now().time_since_epoch();
     return std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(now).count());
@@ -34,31 +44,81 @@ std::string generateImageId() {
     static std::atomic<uint64_t> counter{0};
     return "img_" + nowMs() + "_" + std::to_string(++counter);
 }
-}  // namespace
 
-void AlbumController::registerRoutes(drogon::HttpAppFramework& app) {
-    app.registerHandler("/api/albums", &getPublishedAlbums, {drogon::Get});
-    app.registerHandler("/api/albums/{id}", &getAlbumById, {drogon::Get});
-    app.registerHandler("/api/albums/stats/overview", &getAlbumStats, {drogon::Get});
-
-    app.registerHandler("/api/admin/albums", &createAlbum, {drogon::Post});
-    app.registerHandler("/api/admin/albums", &getAllAlbums, {drogon::Get});
-    app.registerHandler("/api/admin/albums/{id}", &getAlbumDetailsAdmin, {drogon::Get});
-    app.registerHandler("/api/admin/albums/{id}", &deleteAlbum, {drogon::Delete});
-    app.registerHandler("/api/admin/albums/{id}/publish", &publishAlbum, {drogon::Post});
-    app.registerHandler("/api/admin/albums/{id}/archive", &archiveAlbum, {drogon::Post});
-
-    app.registerHandler("/api/admin/albums/submit", &submitAlbumDraft, {drogon::Post});
-    app.registerHandler("/api/admin/images/upload", &uploadImagesToAlbum, {drogon::Post});
-    app.registerHandler("/api/admin/images/{id}/approve", &approveImage, {drogon::Post});
-    app.registerHandler("/api/admin/images/{id}/reject", &rejectImage, {drogon::Post});
-    app.registerHandler("/api/admin/images/{id}/nsfw", &flagImageNSFW, {drogon::Post});
+bool parseJsonBody(const std::string& body, Json::Value& output) {
+    Json::CharReaderBuilder builder;
+    std::string errs;
+    std::istringstream stream(body);
+    return Json::parseFromStream(builder, stream, &output, &errs);
 }
 
-bool AlbumController::verifyAdminKey(const drogon::HttpRequestPtr& req) {
+std::string base64Decode(const std::string& input) {
+    std::string normalized = input;
+    normalized.erase(std::remove(normalized.begin(), normalized.end(), '\n'), normalized.end());
+    normalized.erase(std::remove(normalized.begin(), normalized.end(), '\r'), normalized.end());
+
+    std::string decoded;
+    decoded.resize((normalized.size() * 3) / 4 + 1);
+    const int outLen = EVP_DecodeBlock(reinterpret_cast<unsigned char*>(&decoded[0]),
+                                       reinterpret_cast<const unsigned char*>(normalized.data()),
+                                       static_cast<int>(normalized.size()));
+    if (outLen < 0) {
+        return "";
+    }
+
+    size_t padding = 0;
+    if (!normalized.empty() && normalized.back() == '=') padding++;
+    if (normalized.size() > 1 && normalized[normalized.size() - 2] == '=') padding++;
+
+    decoded.resize(static_cast<size_t>(outLen) - padding);
+    return decoded;
+}
+}  // namespace
+
+AlbumController::AlbumController(Address address)
+    : httpEndpoint(std::make_shared<Http::Endpoint>(address)) {}
+
+void AlbumController::init(size_t threads) {
+    auto opts = Http::Endpoint::options().threads(static_cast<int>(threads)).flags(Tcp::Options::InstallSignalHandler);
+    httpEndpoint->init(opts);
+    setupRoutes();
+}
+
+void AlbumController::start() {
+    httpEndpoint->setHandler(router.handler());
+    httpEndpoint->serve();
+}
+
+void AlbumController::shutdown() {
+    httpEndpoint->shutdown();
+}
+
+void AlbumController::setupRoutes() {
+    using namespace Rest;
+
+    Routes::Get(router, "/api/albums", Routes::bind(&AlbumController::getPublishedAlbums, this));
+    Routes::Get(router, "/api/albums/:id", Routes::bind(&AlbumController::getAlbumById, this));
+    Routes::Get(router, "/api/albums/stats/overview", Routes::bind(&AlbumController::getAlbumStats, this));
+
+    Routes::Post(router, "/api/admin/albums", Routes::bind(&AlbumController::createAlbum, this));
+    Routes::Get(router, "/api/admin/albums", Routes::bind(&AlbumController::getAllAlbums, this));
+    Routes::Get(router, "/api/admin/albums/:id", Routes::bind(&AlbumController::getAlbumDetailsAdmin, this));
+    Routes::Delete(router, "/api/admin/albums/:id", Routes::bind(&AlbumController::deleteAlbum, this));
+    Routes::Post(router, "/api/admin/albums/:id/publish", Routes::bind(&AlbumController::publishAlbum, this));
+    Routes::Post(router, "/api/admin/albums/:id/archive", Routes::bind(&AlbumController::archiveAlbum, this));
+
+    Routes::Post(router, "/api/admin/albums/submit", Routes::bind(&AlbumController::submitAlbumDraft, this));
+    Routes::Post(router, "/api/admin/images/upload", Routes::bind(&AlbumController::uploadImagesToAlbum, this));
+    Routes::Post(router, "/api/admin/images/:id/approve", Routes::bind(&AlbumController::approveImage, this));
+    Routes::Post(router, "/api/admin/images/:id/reject", Routes::bind(&AlbumController::rejectImage, this));
+    Routes::Post(router, "/api/admin/images/:id/nsfw", Routes::bind(&AlbumController::flagImageNSFW, this));
+}
+
+bool AlbumController::verifyAdminKey(const Rest::Request& req) const {
     const char* adminKey = std::getenv("PHOTO_ADMIN_KEY");
     const std::string expected = adminKey == nullptr ? "change-me-admin-key" : adminKey;
-    return req->getHeader("X-Admin-Key") == expected;
+    auto header = req.headers().tryGetRaw("X-Admin-Key");
+    return header.has_value() && header.value() == expected;
 }
 
 bool AlbumController::rateLimitUpload(const std::string& key) {
@@ -75,7 +135,6 @@ bool AlbumController::rateLimitUpload(const std::string& key) {
         entry.second = 0;
     }
 
-    // 8 upload operations/sec per key (replace with Redis in production for stateless scaling)
     if (entry.second >= 8) {
         return false;
     }
@@ -84,60 +143,47 @@ bool AlbumController::rateLimitUpload(const std::string& key) {
     return true;
 }
 
-void AlbumController::getPublishedAlbums(const drogon::HttpRequestPtr& req,
-                                         std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
-    int page = 1;
-    int limit = 10;
-    if (!req->getParameter("page").empty()) page = std::stoi(req->getParameter("page"));
-    if (!req->getParameter("limit").empty()) limit = std::stoi(req->getParameter("limit"));
+void AlbumController::getPublishedAlbums(const Rest::Request& req, Http::ResponseWriter response) {
+    int page = req.query().get("page").isEmpty() ? 1 : std::stoi(req.query().get("page").get());
+    int limit = req.query().get("limit").isEmpty() ? 10 : std::stoi(req.query().get("limit").get());
 
     auto albums = AlbumService::getAlbumsByStatus(AlbumStatus::PUBLISHED, page, limit);
     Json::Value data(Json::arrayValue);
     for (const auto& album : albums) {
-        data.append(Json::Value::null);
-        Json::CharReaderBuilder builder;
-        std::istringstream s(album.toJson(false));
         Json::Value parsed;
+        Json::CharReaderBuilder builder;
         std::string errs;
-        if (Json::parseFromStream(builder, s, &parsed, &errs)) data[data.size() - 1] = parsed;
+        std::istringstream s(album.toJson(false));
+        if (Json::parseFromStream(builder, s, &parsed, &errs)) {
+            data.append(parsed);
+        }
     }
 
-    auto response = drogon::HttpResponse::newHttpJsonResponse(
-        createJsonResponse(true, "Published albums retrieved", data));
-    response->setStatusCode(HttpStatusCode::k200OK);
-    callback(response);
+    response.send(Http::Code::Ok, toBody(createJsonResponse(true, "Published albums retrieved", data)), MIME(Application, Json));
 }
 
-void AlbumController::getAlbumById(const drogon::HttpRequestPtr&,
-                                   std::function<void(const drogon::HttpResponsePtr&)>&& callback,
-                                   const std::string& id) {
+void AlbumController::getAlbumById(const Rest::Request& req, Http::ResponseWriter response) {
+    const auto id = req.param(":id").as<std::string>();
     auto album = AlbumService::getAlbumById(id);
     if (album.id.empty()) {
-        auto response = drogon::HttpResponse::newHttpJsonResponse(createJsonResponse(false, "Album not found"));
-        response->setStatusCode(HttpStatusCode::k404NotFound);
-        callback(response);
+        response.send(Http::Code::Not_Found, toBody(createJsonResponse(false, "Album not found")), MIME(Application, Json));
         return;
     }
 
     album.images.erase(
-        std::remove_if(album.images.begin(), album.images.end(),
-                       [](const Image& img) { return img.status != ImageStatus::APPROVED; }),
+        std::remove_if(album.images.begin(), album.images.end(), [](const Image& img) { return img.status != ImageStatus::APPROVED; }),
         album.images.end());
 
     Json::Value parsed;
     Json::CharReaderBuilder builder;
-    std::istringstream s(album.toJson(true));
     std::string errs;
+    std::istringstream s(album.toJson(true));
     Json::parseFromStream(builder, s, &parsed, &errs);
 
-    auto response = drogon::HttpResponse::newHttpJsonResponse(
-        createJsonResponse(true, "Album retrieved", parsed));
-    response->setStatusCode(HttpStatusCode::k200OK);
-    callback(response);
+    response.send(Http::Code::Ok, toBody(createJsonResponse(true, "Album retrieved", parsed)), MIME(Application, Json));
 }
 
-void AlbumController::getAlbumStats(const drogon::HttpRequestPtr&,
-                                    std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
+void AlbumController::getAlbumStats(const Rest::Request&, Http::ResponseWriter response) {
     auto allAlbums = AlbumService::getAllAlbums(1, 1000);
     int published = 0;
     int totalImages = 0;
@@ -154,40 +200,31 @@ void AlbumController::getAlbumStats(const drogon::HttpRequestPtr&,
     stats["total_images"] = totalImages;
     stats["public_images"] = publicImages;
 
-    auto response = drogon::HttpResponse::newHttpJsonResponse(createJsonResponse(true, "Album statistics", stats));
-    response->setStatusCode(HttpStatusCode::k200OK);
-    callback(response);
+    response.send(Http::Code::Ok, toBody(createJsonResponse(true, "Album statistics", stats)), MIME(Application, Json));
 }
 
-void AlbumController::createAlbum(const drogon::HttpRequestPtr& req,
-                                  std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
+void AlbumController::createAlbum(const Rest::Request& req, Http::ResponseWriter response) {
     if (!verifyAdminKey(req)) {
-        auto response = drogon::HttpResponse::newHttpJsonResponse(createJsonResponse(false, "Unauthorized"));
-        response->setStatusCode(HttpStatusCode::k401Unauthorized);
-        callback(response);
+        response.send(Http::Code::Unauthorized, toBody(createJsonResponse(false, "Unauthorized")), MIME(Application, Json));
         return;
     }
 
-    auto json = req->getJsonObject();
-    if (!json || !(*json).isMember("title") || (*json)["title"].asString().empty()) {
-        auto response = drogon::HttpResponse::newHttpJsonResponse(createJsonResponse(false, "title is required"));
-        response->setStatusCode(HttpStatusCode::k400BadRequest);
-        callback(response);
+    Json::Value json;
+    if (!parseJsonBody(req.body(), json) || !json.isMember("title") || json["title"].asString().empty()) {
+        response.send(Http::Code::Bad_Request, toBody(createJsonResponse(false, "title is required")), MIME(Application, Json));
         return;
     }
 
     Album album;
-    album.title = (*json)["title"].asString();
-    album.description = (*json).isMember("description") ? (*json)["description"].asString() : "";
-    album.uploader_name = (*json).isMember("uploader_name") ? (*json)["uploader_name"].asString() : "";
+    album.title = json["title"].asString();
+    album.description = json.isMember("description") ? json["description"].asString() : "";
+    album.uploader_name = json.isMember("uploader_name") ? json["uploader_name"].asString() : "";
     album.admin_token = AlbumService::generateAdminToken();
     album.status = AlbumStatus::DRAFT;
 
     auto id = AlbumService::createAlbum(album);
     if (id.empty()) {
-        auto response = drogon::HttpResponse::newHttpJsonResponse(createJsonResponse(false, "Failed to create album"));
-        response->setStatusCode(HttpStatusCode::k500InternalServerError);
-        callback(response);
+        response.send(Http::Code::Internal_Server_Error, toBody(createJsonResponse(false, "Failed to create album")), MIME(Application, Json));
         return;
     }
 
@@ -196,75 +233,77 @@ void AlbumController::createAlbum(const drogon::HttpRequestPtr& req,
     data["token"] = album.admin_token;
     data["max_images"] = 40;
 
-    auto response = drogon::HttpResponse::newHttpJsonResponse(createJsonResponse(true, "Album created", data));
-    response->setStatusCode(HttpStatusCode::k201Created);
-    callback(response);
+    response.send(Http::Code::Created, toBody(createJsonResponse(true, "Album created", data)), MIME(Application, Json));
 }
 
-void AlbumController::uploadImagesToAlbum(const drogon::HttpRequestPtr& req,
-                                          std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
-    const std::string token = req->getParameter("token");
-    const std::string albumId = req->getParameter("album_id");
-
-    if (token.empty() || albumId.empty()) {
-        auto response = drogon::HttpResponse::newHttpJsonResponse(
-            createJsonResponse(false, "album_id and token are required"));
-        response->setStatusCode(HttpStatusCode::k400BadRequest);
-        callback(response);
+void AlbumController::uploadImagesToAlbum(const Rest::Request& req, Http::ResponseWriter response) {
+    Json::Value json;
+    if (!parseJsonBody(req.body(), json)) {
+        response.send(Http::Code::Bad_Request, toBody(createJsonResponse(false, "Invalid JSON body")), MIME(Application, Json));
         return;
     }
 
-    if (!rateLimitUpload(req->peerAddr().toIpPort()) || !rateLimitUpload(token)) {
-        auto response = drogon::HttpResponse::newHttpJsonResponse(createJsonResponse(false, "Rate limit exceeded"));
-        response->setStatusCode(HttpStatusCode::k429TooManyRequests);
-        callback(response);
+    const std::string token = json.isMember("token") ? json["token"].asString() : "";
+    const std::string albumId = json.isMember("album_id") ? json["album_id"].asString() : "";
+
+    if (token.empty() || albumId.empty()) {
+        response.send(Http::Code::Bad_Request, toBody(createJsonResponse(false, "album_id and token are required")), MIME(Application, Json));
+        return;
+    }
+
+    auto client = req.address().host();
+    if (!rateLimitUpload(client) || !rateLimitUpload(token)) {
+        response.send(Http::Code::Too_Many_Requests, toBody(createJsonResponse(false, "Rate limit exceeded")), MIME(Application, Json));
         return;
     }
 
     if (!AlbumService::checkTokenValidity(token)) {
-        auto response = drogon::HttpResponse::newHttpJsonResponse(createJsonResponse(false, "Invalid or used token"));
-        response->setStatusCode(HttpStatusCode::k401Unauthorized);
-        callback(response);
+        response.send(Http::Code::Unauthorized, toBody(createJsonResponse(false, "Invalid or used token")), MIME(Application, Json));
         return;
     }
 
     auto album = AlbumService::getAlbumById(albumId);
     if (album.id.empty() || album.admin_token != token || album.status != AlbumStatus::DRAFT) {
-        auto response = drogon::HttpResponse::newHttpJsonResponse(
-            createJsonResponse(false, "Album not found or not in draft state"));
-        response->setStatusCode(HttpStatusCode::k400BadRequest);
-        callback(response);
+        response.send(Http::Code::Bad_Request, toBody(createJsonResponse(false, "Album not found or not in draft state")), MIME(Application, Json));
         return;
     }
 
-    auto json = req->getJsonObject();
-    if (!json || !(*json).isMember("images") || !(*json)["images"].isArray() || (*json)["images"].empty()) {
-        auto response = drogon::HttpResponse::newHttpJsonResponse(createJsonResponse(false, "At least one image required with format: {images: [{url, alt_text, caption}]}"));
-        response->setStatusCode(HttpStatusCode::k400BadRequest);
-        callback(response);
+    if (!json.isMember("images") || !json["images"].isArray() || json["images"].empty()) {
+        response.send(Http::Code::Bad_Request, toBody(createJsonResponse(false, "images[] is required")), MIME(Application, Json));
         return;
     }
+
+    std::filesystem::create_directories(ImageService::getStoragePath());
 
     Json::Value uploaded(Json::arrayValue);
     int order = album.image_count + 1;
-    const auto& imagesArray = (*json)["images"];
-
-    for (size_t i = 0; i < imagesArray.size(); ++i) {
+    for (const auto& fileData : json["images"]) {
         if (!album.canAddImage()) {
             break;
         }
 
-        const auto& fileData = imagesArray[static_cast<int>(i)];
-        if (!fileData.isMember("url") || fileData["url"].asString().empty()) {
+        const std::string fileName = fileData.isMember("file_name") ? fileData["file_name"].asString() : "";
+        const std::string contentBase64 = fileData.isMember("content_base64") ? fileData["content_base64"].asString() : "";
+
+        if (fileName.empty() || contentBase64.empty() || !ImageService::isAllowedFormat(fileName)) {
             continue;
         }
 
-        std::string imageUrl = fileData["url"].asString();
+        const std::string decoded = base64Decode(contentBase64);
+        if (decoded.empty()) {
+            continue;
+        }
+
+        const std::string imageId = generateImageId();
+        const std::string savedPath = ImageService::getStoragePath() + "/" + albumId + "_" + imageId + "_" + fileName;
+        std::ofstream out(savedPath, std::ios::binary);
+        out.write(decoded.data(), static_cast<std::streamsize>(decoded.size()));
+        out.close();
 
         Image image;
-        image.id = generateImageId();
+        image.id = imageId;
         image.album_id = albumId;
-        image.url = imageUrl;
+        image.url = savedPath;
         image.alt_text = fileData.isMember("alt_text") ? fileData["alt_text"].asString() : "uploaded image";
         image.caption = fileData.isMember("caption") ? fileData["caption"].asString() : "";
         image.display_order = order++;
@@ -289,40 +328,28 @@ void AlbumController::uploadImagesToAlbum(const drogon::HttpRequestPtr& req,
     data["uploaded_count"] = static_cast<int>(uploaded.size());
     data["images"] = uploaded;
     data["album_status"] = "draft";
-    data["remaining_slots"] = (std::max)(0, 40 - album.image_count);
+    data["remaining_slots"] = std::max(0, 40 - album.image_count);
 
-    auto response = drogon::HttpResponse::newHttpJsonResponse(createJsonResponse(true, "Images uploaded", data));
-    response->setStatusCode(HttpStatusCode::k200OK);
-    callback(response);
+    response.send(Http::Code::Ok, toBody(createJsonResponse(true, "Images uploaded", data)), MIME(Application, Json));
 }
 
-void AlbumController::submitAlbumDraft(const drogon::HttpRequestPtr& req,
-                                       std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
-    auto json = req->getJsonObject();
-    if (!json || !(*json).isMember("album_id") || !(*json).isMember("token")) {
-        auto response = drogon::HttpResponse::newHttpJsonResponse(
-            createJsonResponse(false, "album_id and token are required"));
-        response->setStatusCode(HttpStatusCode::k400BadRequest);
-        callback(response);
+void AlbumController::submitAlbumDraft(const Rest::Request& req, Http::ResponseWriter response) {
+    Json::Value json;
+    if (!parseJsonBody(req.body(), json) || !json.isMember("album_id") || !json.isMember("token")) {
+        response.send(Http::Code::Bad_Request, toBody(createJsonResponse(false, "album_id and token are required")), MIME(Application, Json));
         return;
     }
 
-    const auto albumId = (*json)["album_id"].asString();
-    const auto token = (*json)["token"].asString();
+    const auto albumId = json["album_id"].asString();
+    const auto token = json["token"].asString();
 
     if (!AlbumService::validateAndConsumeToken(token, albumId)) {
-        auto response = drogon::HttpResponse::newHttpJsonResponse(
-            createJsonResponse(false, "Invalid token, mismatched album, or token already used"));
-        response->setStatusCode(HttpStatusCode::k401Unauthorized);
-        callback(response);
+        response.send(Http::Code::Unauthorized, toBody(createJsonResponse(false, "Invalid token, mismatched album, or token already used")), MIME(Application, Json));
         return;
     }
 
     if (!AlbumService::submitAlbum(albumId)) {
-        auto response = drogon::HttpResponse::newHttpJsonResponse(
-            createJsonResponse(false, "Album needs at least one image before submission"));
-        response->setStatusCode(HttpStatusCode::k400BadRequest);
-        callback(response);
+        response.send(Http::Code::Bad_Request, toBody(createJsonResponse(false, "Album needs at least one image before submission")), MIME(Application, Json));
         return;
     }
 
@@ -330,24 +357,17 @@ void AlbumController::submitAlbumDraft(const drogon::HttpRequestPtr& req,
     data["album_id"] = albumId;
     data["status"] = "submitted";
 
-    auto response = drogon::HttpResponse::newHttpJsonResponse(createJsonResponse(true, "Album submitted", data));
-    response->setStatusCode(HttpStatusCode::k200OK);
-    callback(response);
+    response.send(Http::Code::Ok, toBody(createJsonResponse(true, "Album submitted", data)), MIME(Application, Json));
 }
 
-void AlbumController::getAllAlbums(const drogon::HttpRequestPtr& req,
-                                   std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
+void AlbumController::getAllAlbums(const Rest::Request& req, Http::ResponseWriter response) {
     if (!verifyAdminKey(req)) {
-        auto response = drogon::HttpResponse::newHttpJsonResponse(createJsonResponse(false, "Unauthorized"));
-        response->setStatusCode(HttpStatusCode::k401Unauthorized);
-        callback(response);
+        response.send(Http::Code::Unauthorized, toBody(createJsonResponse(false, "Unauthorized")), MIME(Application, Json));
         return;
     }
 
-    int page = 1;
-    int limit = 10;
-    if (!req->getParameter("page").empty()) page = std::stoi(req->getParameter("page"));
-    if (!req->getParameter("limit").empty()) limit = std::stoi(req->getParameter("limit"));
+    int page = req.query().get("page").isEmpty() ? 1 : std::stoi(req.query().get("page").get());
+    int limit = req.query().get("limit").isEmpty() ? 10 : std::stoi(req.query().get("limit").get());
 
     auto albums = AlbumService::getAllAlbums(page, limit);
     Json::Value data(Json::arrayValue);
@@ -355,173 +375,126 @@ void AlbumController::getAllAlbums(const drogon::HttpRequestPtr& req,
     for (const auto& album : albums) {
         Json::Value parsed;
         Json::CharReaderBuilder builder;
-        std::istringstream s(album.toJson(true));
         std::string errs;
+        std::istringstream s(album.toJson(true));
         if (Json::parseFromStream(builder, s, &parsed, &errs)) {
             data.append(parsed);
         }
     }
 
-    auto response = drogon::HttpResponse::newHttpJsonResponse(createJsonResponse(true, "Albums retrieved", data));
-    response->setStatusCode(HttpStatusCode::k200OK);
-    callback(response);
+    response.send(Http::Code::Ok, toBody(createJsonResponse(true, "Albums retrieved", data)), MIME(Application, Json));
 }
 
-void AlbumController::getAlbumDetailsAdmin(const drogon::HttpRequestPtr& req,
-                                           std::function<void(const drogon::HttpResponsePtr&)>&& callback,
-                                           const std::string& id) {
+void AlbumController::getAlbumDetailsAdmin(const Rest::Request& req, Http::ResponseWriter response) {
     if (!verifyAdminKey(req)) {
-        auto response = drogon::HttpResponse::newHttpJsonResponse(createJsonResponse(false, "Unauthorized"));
-        response->setStatusCode(HttpStatusCode::k401Unauthorized);
-        callback(response);
+        response.send(Http::Code::Unauthorized, toBody(createJsonResponse(false, "Unauthorized")), MIME(Application, Json));
         return;
     }
 
+    const auto id = req.param(":id").as<std::string>();
     auto album = AlbumService::getAlbumById(id);
     if (album.id.empty()) {
-        auto response = drogon::HttpResponse::newHttpJsonResponse(createJsonResponse(false, "Album not found"));
-        response->setStatusCode(HttpStatusCode::k404NotFound);
-        callback(response);
+        response.send(Http::Code::Not_Found, toBody(createJsonResponse(false, "Album not found")), MIME(Application, Json));
         return;
     }
 
     Json::Value parsed;
     Json::CharReaderBuilder builder;
-    std::istringstream s(album.toJson(true));
     std::string errs;
+    std::istringstream s(album.toJson(true));
     Json::parseFromStream(builder, s, &parsed, &errs);
 
-    auto response = drogon::HttpResponse::newHttpJsonResponse(createJsonResponse(true, "Album detail", parsed));
-    response->setStatusCode(HttpStatusCode::k200OK);
-    callback(response);
+    response.send(Http::Code::Ok, toBody(createJsonResponse(true, "Album detail", parsed)), MIME(Application, Json));
 }
 
-void AlbumController::approveImage(const drogon::HttpRequestPtr& req,
-                                   std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
+void AlbumController::approveImage(const Rest::Request& req, Http::ResponseWriter response) {
     if (!verifyAdminKey(req)) {
-        auto response = drogon::HttpResponse::newHttpJsonResponse(createJsonResponse(false, "Unauthorized"));
-        response->setStatusCode(HttpStatusCode::k401Unauthorized);
-        callback(response);
+        response.send(Http::Code::Unauthorized, toBody(createJsonResponse(false, "Unauthorized")), MIME(Application, Json));
         return;
     }
 
-    auto json = req->getJsonObject();
-    if (!json || !(*json).isMember("album_id") || !(*json).isMember("image_id")) {
-        auto response = drogon::HttpResponse::newHttpJsonResponse(
-            createJsonResponse(false, "album_id and image_id are required"));
-        response->setStatusCode(HttpStatusCode::k400BadRequest);
-        callback(response);
+    Json::Value json;
+    if (!parseJsonBody(req.body(), json) || !json.isMember("album_id") || !json.isMember("image_id")) {
+        response.send(Http::Code::Bad_Request, toBody(createJsonResponse(false, "album_id and image_id are required")), MIME(Application, Json));
         return;
     }
 
-    const bool ok = AlbumService::updateImageStatus((*json)["album_id"].asString(),
-                                                    (*json)["image_id"].asString(),
-                                                    ImageStatus::APPROVED);
-
-    auto response = drogon::HttpResponse::newHttpJsonResponse(createJsonResponse(ok, ok ? "Image approved" : "Update failed"));
-    response->setStatusCode(ok ? HttpStatusCode::k200OK : HttpStatusCode::k500InternalServerError);
-    callback(response);
+    const bool ok = AlbumService::updateImageStatus(json["album_id"].asString(), json["image_id"].asString(), ImageStatus::APPROVED);
+    response.send(ok ? Http::Code::Ok : Http::Code::Internal_Server_Error,
+                  toBody(createJsonResponse(ok, ok ? "Image approved" : "Update failed")), MIME(Application, Json));
 }
 
-void AlbumController::rejectImage(const drogon::HttpRequestPtr& req,
-                                  std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
+void AlbumController::rejectImage(const Rest::Request& req, Http::ResponseWriter response) {
     if (!verifyAdminKey(req)) {
-        auto response = drogon::HttpResponse::newHttpJsonResponse(createJsonResponse(false, "Unauthorized"));
-        response->setStatusCode(HttpStatusCode::k401Unauthorized);
-        callback(response);
+        response.send(Http::Code::Unauthorized, toBody(createJsonResponse(false, "Unauthorized")), MIME(Application, Json));
         return;
     }
 
-    auto json = req->getJsonObject();
-    if (!json || !(*json).isMember("album_id") || !(*json).isMember("image_id")) {
-        auto response = drogon::HttpResponse::newHttpJsonResponse(
-            createJsonResponse(false, "album_id and image_id are required"));
-        response->setStatusCode(HttpStatusCode::k400BadRequest);
-        callback(response);
+    Json::Value json;
+    if (!parseJsonBody(req.body(), json) || !json.isMember("album_id") || !json.isMember("image_id")) {
+        response.send(Http::Code::Bad_Request, toBody(createJsonResponse(false, "album_id and image_id are required")), MIME(Application, Json));
         return;
     }
 
-    const bool ok = AlbumService::updateImageStatus((*json)["album_id"].asString(),
-                                                    (*json)["image_id"].asString(),
-                                                    ImageStatus::REJECTED);
-
-    auto response = drogon::HttpResponse::newHttpJsonResponse(createJsonResponse(ok, ok ? "Image rejected" : "Update failed"));
-    response->setStatusCode(ok ? HttpStatusCode::k200OK : HttpStatusCode::k500InternalServerError);
-    callback(response);
+    const bool ok = AlbumService::updateImageStatus(json["album_id"].asString(), json["image_id"].asString(), ImageStatus::REJECTED);
+    response.send(ok ? Http::Code::Ok : Http::Code::Internal_Server_Error,
+                  toBody(createJsonResponse(ok, ok ? "Image rejected" : "Update failed")), MIME(Application, Json));
 }
 
-void AlbumController::flagImageNSFW(const drogon::HttpRequestPtr& req,
-                                    std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
+void AlbumController::flagImageNSFW(const Rest::Request& req, Http::ResponseWriter response) {
     if (!verifyAdminKey(req)) {
-        auto response = drogon::HttpResponse::newHttpJsonResponse(createJsonResponse(false, "Unauthorized"));
-        response->setStatusCode(HttpStatusCode::k401Unauthorized);
-        callback(response);
+        response.send(Http::Code::Unauthorized, toBody(createJsonResponse(false, "Unauthorized")), MIME(Application, Json));
         return;
     }
 
-    auto json = req->getJsonObject();
-    if (!json || !(*json).isMember("album_id") || !(*json).isMember("image_id")) {
-        auto response = drogon::HttpResponse::newHttpJsonResponse(
-            createJsonResponse(false, "album_id and image_id are required"));
-        response->setStatusCode(HttpStatusCode::k400BadRequest);
-        callback(response);
+    Json::Value json;
+    if (!parseJsonBody(req.body(), json) || !json.isMember("album_id") || !json.isMember("image_id")) {
+        response.send(Http::Code::Bad_Request, toBody(createJsonResponse(false, "album_id and image_id are required")), MIME(Application, Json));
         return;
     }
 
-    const bool ok = AlbumService::updateImageStatus((*json)["album_id"].asString(),
-                                                    (*json)["image_id"].asString(),
-                                                    ImageStatus::NSFW_FLAGGED,
-                                                    (*json).isMember("reason") ? (*json)["reason"].asString() : "manual moderation");
+    const bool ok = AlbumService::updateImageStatus(
+        json["album_id"].asString(),
+        json["image_id"].asString(),
+        ImageStatus::NSFW_FLAGGED,
+        json.isMember("reason") ? json["reason"].asString() : "manual moderation");
 
-    auto response = drogon::HttpResponse::newHttpJsonResponse(createJsonResponse(ok, ok ? "Image flagged" : "Update failed"));
-    response->setStatusCode(ok ? HttpStatusCode::k200OK : HttpStatusCode::k500InternalServerError);
-    callback(response);
+    response.send(ok ? Http::Code::Ok : Http::Code::Internal_Server_Error,
+                  toBody(createJsonResponse(ok, ok ? "Image flagged" : "Update failed")), MIME(Application, Json));
 }
 
-void AlbumController::publishAlbum(const drogon::HttpRequestPtr& req,
-                                   std::function<void(const drogon::HttpResponsePtr&)>&& callback,
-                                   const std::string& id) {
+void AlbumController::publishAlbum(const Rest::Request& req, Http::ResponseWriter response) {
     if (!verifyAdminKey(req)) {
-        auto response = drogon::HttpResponse::newHttpJsonResponse(createJsonResponse(false, "Unauthorized"));
-        response->setStatusCode(HttpStatusCode::k401Unauthorized);
-        callback(response);
+        response.send(Http::Code::Unauthorized, toBody(createJsonResponse(false, "Unauthorized")), MIME(Application, Json));
         return;
     }
 
+    const auto id = req.param(":id").as<std::string>();
     const bool ok = AlbumService::publishAlbum(id);
-    auto response = drogon::HttpResponse::newHttpJsonResponse(createJsonResponse(ok, ok ? "Album published" : "Publish failed"));
-    response->setStatusCode(ok ? HttpStatusCode::k200OK : HttpStatusCode::k500InternalServerError);
-    callback(response);
+    response.send(ok ? Http::Code::Ok : Http::Code::Internal_Server_Error,
+                  toBody(createJsonResponse(ok, ok ? "Album published" : "Publish failed")), MIME(Application, Json));
 }
 
-void AlbumController::archiveAlbum(const drogon::HttpRequestPtr& req,
-                                   std::function<void(const drogon::HttpResponsePtr&)>&& callback,
-                                   const std::string& id) {
+void AlbumController::archiveAlbum(const Rest::Request& req, Http::ResponseWriter response) {
     if (!verifyAdminKey(req)) {
-        auto response = drogon::HttpResponse::newHttpJsonResponse(createJsonResponse(false, "Unauthorized"));
-        response->setStatusCode(HttpStatusCode::k401Unauthorized);
-        callback(response);
+        response.send(Http::Code::Unauthorized, toBody(createJsonResponse(false, "Unauthorized")), MIME(Application, Json));
         return;
     }
 
+    const auto id = req.param(":id").as<std::string>();
     const bool ok = AlbumService::archiveAlbum(id);
-    auto response = drogon::HttpResponse::newHttpJsonResponse(createJsonResponse(ok, ok ? "Album archived" : "Archive failed"));
-    response->setStatusCode(ok ? HttpStatusCode::k200OK : HttpStatusCode::k500InternalServerError);
-    callback(response);
+    response.send(ok ? Http::Code::Ok : Http::Code::Internal_Server_Error,
+                  toBody(createJsonResponse(ok, ok ? "Album archived" : "Archive failed")), MIME(Application, Json));
 }
 
-void AlbumController::deleteAlbum(const drogon::HttpRequestPtr& req,
-                                  std::function<void(const drogon::HttpResponsePtr&)>&& callback,
-                                  const std::string& id) {
+void AlbumController::deleteAlbum(const Rest::Request& req, Http::ResponseWriter response) {
     if (!verifyAdminKey(req)) {
-        auto response = drogon::HttpResponse::newHttpJsonResponse(createJsonResponse(false, "Unauthorized"));
-        response->setStatusCode(HttpStatusCode::k401Unauthorized);
-        callback(response);
+        response.send(Http::Code::Unauthorized, toBody(createJsonResponse(false, "Unauthorized")), MIME(Application, Json));
         return;
     }
 
+    const auto id = req.param(":id").as<std::string>();
     const bool ok = AlbumService::deleteAlbum(id);
-    auto response = drogon::HttpResponse::newHttpJsonResponse(createJsonResponse(ok, ok ? "Album deleted" : "Album not found"));
-    response->setStatusCode(ok ? HttpStatusCode::k200OK : HttpStatusCode::k404NotFound);
-    callback(response);
+    response.send(ok ? Http::Code::Ok : Http::Code::Not_Found,
+                  toBody(createJsonResponse(ok, ok ? "Album deleted" : "Album not found")), MIME(Application, Json));
 }

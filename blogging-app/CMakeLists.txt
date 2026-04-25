@@ -1,61 +1,44 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.16)
 project(AlbumSharingService)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Find required packages
-find_package(SQLite3 REQUIRED)
+find_package(PkgConfig REQUIRED)
 find_package(OpenSSL REQUIRED)
+find_package(Threads REQUIRED)
+pkg_check_modules(PISTACHE REQUIRED libpistache)
 
-# Include directories
+find_path(JSONCPP_INCLUDE_DIR json/json.h PATHS /usr/include/jsoncpp /usr/local/include/jsoncpp)
+find_library(JSONCPP_LIBRARY NAMES jsoncpp libjsoncpp)
+if(NOT JSONCPP_INCLUDE_DIR OR NOT JSONCPP_LIBRARY)
+    message(FATAL_ERROR "jsoncpp headers or library not found")
+endif()
+
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${SQLite3_INCLUDE_DIRS}
-    include/db
-    include/models
-    include/repositories
-    include/services
-    include/controllers
-    include/utils
+    ${PISTACHE_INCLUDE_DIRS}
+    ${JSONCPP_INCLUDE_DIR}
 )
 
-# Source files
 set(SOURCES
     src/main.cpp
-    src/db/Database.cpp
-    src/db/DatabaseUtils.cpp
     src/models/Album.cpp
     src/models/Image.cpp
-    src/models/User.cpp
-    src/models/Share.cpp
-    src/repositories/AlbumRepository.cpp
-    src/repositories/ImageRepository.cpp
-    src/repositories/UserRepository.cpp
-    src/repositories/ShareRepository.cpp
     src/services/AlbumService.cpp
     src/services/ImageService.cpp
-    src/services/UserService.cpp
-    src/services/ShareService.cpp
     src/controllers/AlbumController.cpp
-    src/controllers/ImageController.cpp
-    src/controllers/UserController.cpp
-    src/controllers/ShareController.cpp
-    src/utils/SlugGenerator.cpp
-    src/utils/Utils.cpp
 )
 
-# Create executable
 add_executable(album_sharing_service ${SOURCES})
 
-# Link libraries
 target_link_libraries(album_sharing_service
-    ${SQLite3_LIBRARIES}
-    pistache
+    ${PISTACHE_LIBRARIES}
+    ${JSONCPP_LIBRARY}
     ${OPENSSL_LIBRARIES}
+    Threads::Threads
 )
 
-# Set compiler flags
 if(MSVC)
     target_compile_options(album_sharing_service PRIVATE /W4)
 else()
